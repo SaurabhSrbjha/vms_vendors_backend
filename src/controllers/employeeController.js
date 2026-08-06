@@ -1,5 +1,10 @@
 import pool from "../config/db.js";
-import { hashPassword, generateAutoEmployeeId } from "../utils.js";
+import {
+  hashPassword,
+  generateAutoEmployeeId,
+  generateEmployeeUsername,
+  generateEmployeeDefaultPassword,
+} from "../utils.js";
 
 /**
  * GET /api/employees
@@ -126,6 +131,12 @@ export const createEmployee = async (req, res) => {
       finalEmployeeId = await generateAutoEmployeeId();
     }
 
+    // Generate Username (emp_id + last 6 digits of mobile) e.g. EMP1001332955
+    const finalUsername = generateEmployeeUsername(finalEmployeeId, mobile.trim());
+
+    // Generate Default Password (emp_id + DDMMYYYY of DOB) e.g. EMP100114091998
+    const defaultPassword = generateEmployeeDefaultPassword(finalEmployeeId, dob.trim());
+
     // Check existing employee_id or username
     const existingEmp = await pool.query(
       "SELECT id FROM employees WHERE employee_id = $1",
@@ -140,12 +151,12 @@ export const createEmployee = async (req, res) => {
 
     const existingUser = await pool.query(
       "SELECT id FROM users WHERE username = $1",
-      [finalEmployeeId]
+      [finalUsername]
     );
     if (existingUser.rows.length > 0) {
       return res.status(400).json({
         success: false,
-        message: `User with username '${finalEmployeeId}' already exists.`,
+        message: `User with username '${finalUsername}' already exists.`,
       });
     }
 
@@ -172,11 +183,11 @@ export const createEmployee = async (req, res) => {
     const createdEmployee = empResult.rows[0];
 
     // 2. Create user record automatically
-    // Username: Employee ID
-    // Password: DOB (Hashed before storing)
+    // Username: Employee ID + last 6 digits of mobile (e.g. EMP1001332955)
+    // Password: Employee ID + DDMMYYYY of DOB (Hashed before storing, e.g. EMP100114091998)
     // Role: employee or reception
     // Status: active
-    const hashedPassword = await hashPassword(dob.trim());
+    const hashedPassword = await hashPassword(defaultPassword);
 
     const insertUserQuery = `
       INSERT INTO users (employee_id, username, password, role, status)
@@ -186,7 +197,7 @@ export const createEmployee = async (req, res) => {
 
     await client.query(insertUserQuery, [
       finalEmployeeId,
-      finalEmployeeId,
+      finalUsername,
       hashedPassword,
       formattedRole,
       formattedStatus,
@@ -365,3 +376,63 @@ export const toggleEmployeeStatus = async (req, res) => {
     client.release();
   }
 };
+
+/**
+ * DELETE /api/employees/:id
+ * Delete Employee (Admin only)
+ * Removes employee record from `employees` table and corresponding user from `users` table.
+ */
+export const deleteEmployee = async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const { id } = req.params;
+
+    const findEmp = await client.query(
+      "SELECT * FROM employees WHERE id = $1",
+      [id]
+    );
+
+    if (findEmp.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Employee not found.",
+      });
+    }
+
+    const emp = findEmp.rows[0];
+
+    await client.query("BEGIN");
+
+    // 1. Delete record from employees table
+    const deleteEmpResult = await client.query(
+      "DELETE FROM employees WHERE id = $1 RETURNING *",
+      [id]
+    );
+
+    // 2. Delete corresponding user record from users table
+    if (emp.employee_id) {
+      await client.query(
+        "DELETE FROM users WHERE employee_id = $1",
+        [emp.employee_id]
+      );
+    }
+
+    await client.query("COMMIT");
+
+    return res.status(200).json({
+      success: true,
+      message: "Employee and associated user account deleted successfully.",
+      data: deleteEmpResult.rows[0],
+    });
+  } catch (error) {
+    await client.query("ROLLBACK");
+    console.error("Error in deleteEmployee:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to delete employee.",
+    });
+  } finally {
+    client.release();
+  }
+};
+

@@ -5,6 +5,7 @@ import {
   createEmployee,
   updateEmployee,
   toggleEmployeeStatus,
+  deleteEmployee,
 } from "../controllers/employeeController.js";
 import { verifyToken, requireRole } from "../utils.js";
 
@@ -18,5 +19,7 @@ router.get("/:id", getEmployeeById);
 router.post("/", createEmployee);
 router.put("/:id", updateEmployee);
 router.patch("/:id/status", toggleEmployeeStatus);
+router.delete("/:id", deleteEmployee);
 
 export default router;
+

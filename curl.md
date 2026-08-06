@@ -21,6 +21,7 @@ Base URL: `http://localhost:5000/api`
    - [2.5 Add New Reception User](#25-add-new-reception-user)
    - [2.6 Edit Employee Details](#26-edit-employee-details)
    - [2.7 Activate / Deactivate Employee](#27-activate--deactivate-employee)
+   - [2.8 Delete Employee](#28-delete-employee)
 
 ---
 
@@ -82,14 +83,14 @@ curl -X POST http://localhost:5000/api/login \
 ---
 
 ### 1.3 Employee Login (Mobile)
-Authenticates Employee user from mobile device using Employee ID as username and DOB as password.
+Authenticates Employee user from mobile device using Username (`EMP_ID + last 6 digits of mobile`) and Password (`EMP_ID + DDMMYYYY of DOB`).
 
 ```bash
 curl -X POST http://localhost:5000/api/login \
   -H "Content-Type: application/json" \
   -d '{
-    "username": "EMP1001",
-    "password": "1995-05-15",
+    "username": "EMP1001543210",
+    "password": "EMP100115051995",
     "device_type": "mobile"
   }'
 ```
@@ -103,8 +104,8 @@ curl -X POST http://localhost:5000/api/login \
   "user": {
     "id": 2,
     "employee_id": "EMP1001",
-    "username": "EMP1001",
-    "full_name": "John Doe",
+    "username": "EMP1001543210",
+    "full_name": "Rahul Sharma",
     "role": "employee",
     "status": "active"
   }
@@ -120,8 +121,8 @@ Attempts Employee login with `device_type: "web"`.
 curl -X POST http://localhost:5000/api/login \
   -H "Content-Type: application/json" \
   -d '{
-    "username": "EMP1001",
-    "password": "1995-05-15",
+    "username": "EMP1001543210",
+    "password": "EMP100115051995",
     "device_type": "web"
   }'
 ```
@@ -143,8 +144,8 @@ Authenticates Reception user from mobile device.
 curl -X POST http://localhost:5000/api/login \
   -H "Content-Type: application/json" \
   -d '{
-    "username": "EMP1002",
-    "password": "1998-08-20",
+    "username": "EMP1002543211",
+    "password": "EMP100220081998",
     "device_type": "mobile"
   }'
 ```
@@ -158,13 +159,14 @@ curl -X POST http://localhost:5000/api/login \
   "user": {
     "id": 3,
     "employee_id": "EMP1002",
-    "username": "EMP1002",
-    "full_name": "Sarah Connor",
+    "username": "EMP1002543211",
+    "full_name": "Priya Singh",
     "role": "reception",
     "status": "active"
   }
 }
 ```
+
 
 ---
 
@@ -275,8 +277,8 @@ curl -X GET http://localhost:5000/api/employees/1 \
 
 ### 2.4 Add New Employee
 Creates employee record and automatically generates user account with:
-- `username` = `employee_id`
-- `password` = `dob` (hashed before saving)
+- `username` = `EMP_ID + last 6 digits of mobile` (e.g. `EMP1001332955` for phone `8800332955`)
+- `password` = `EMP_ID + DDMMYYYY of DOB` (e.g. `EMP100114091998` for DOB `14-09-1998`, hashed before saving)
 - `role` = `employee` / `reception`
 - `status` = `active`
 
@@ -413,3 +415,197 @@ curl -X PATCH http://localhost:5000/api/employees/1/status \
   }
 }
 ```
+
+---
+
+### 2.8 Delete Employee
+Deletes employee record from `employees` table and removes corresponding user account from `users` table.
+
+```bash
+curl -X DELETE http://localhost:5000/api/employees/1 \
+  -H "Authorization: Bearer <ADMIN_JWT_TOKEN>"
+```
+
+#### Success Response (`200 OK`)
+```json
+{
+  "success": true,
+  "message": "Employee and associated user account deleted successfully.",
+  "data": {
+    "id": 1,
+    "employee_id": "EMP1001",
+    "full_name": "Johnathan Doe",
+    "dob": "1995-05-15",
+    "mobile": "+1234567890",
+    "email": "john.doe@example.com",
+    "department": "Engineering",
+    "designation": "Senior Software Engineer",
+    "role": "employee",
+    "status": "inactive",
+    "created_at": "2026-08-03T15:50:00.000Z",
+    "updated_at": "2026-08-03T15:50:00.000Z"
+  }
+}
+```
+
+---
+
+## 3. Visitor Management Module
+
+### 3.1 Receptionist Adds New Visitor (With Base64 Photo)
+Creates a new visitor entry in `PENDING` status and saves the uploaded Base64 photo to local server storage.
+
+```bash
+curl -X POST http://localhost:5000/api/visitors \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <RECEPTION_JWT_TOKEN>" \
+  -d '{
+    "photo": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD...",
+    "fullName": "Amit Patel",
+    "email": "amit.patel@example.com",
+    "mobile": "9876543210",
+    "officeName": "Infosys Ltd",
+    "hostEmployeeId": "EMP1001",
+    "hostEmployeeName": "Rahul Sharma",
+    "hostDepartment": "Engineering",
+    "purpose": "Business Meeting",
+    "visitorType": "Vendor",
+    "notes": "Arriving for Q3 project discussion"
+  }'
+```
+
+#### Success Response (`201 Created`)
+```json
+{
+  "success": true,
+  "message": "Visitor created successfully and sent for host approval.",
+  "data": {
+    "id": 1,
+    "visitor_id": "VIS1001",
+    "photo": "/uploads/visitors/visitor_1723000000_1234.jpg",
+    "full_name": "Amit Patel",
+    "email": "amit.patel@example.com",
+    "mobile": "9876543210",
+    "office_name": "Infosys Ltd",
+    "host_employee_id": "EMP1001",
+    "host_employee_name": "Rahul Sharma",
+    "host_department": "Engineering",
+    "purpose": "Business Meeting",
+    "visitor_type": "Vendor",
+    "notes": "Arriving for Q3 project discussion",
+    "status": "PENDING",
+    "receptionist_id": "EMP1002",
+    "receptionist_name": "Priya Singh",
+    "created_at": "2026-08-06T13:37:00.000Z",
+    "updated_at": "2026-08-06T13:37:00.000Z"
+  }
+}
+```
+
+---
+
+### 3.2 Employee Approves Visitor Request (Using `visitor_id`)
+Host employee approves the visitor visiting request by passing `visitor_id` (e.g. `VIS1001`) in URL path or JSON body.
+
+#### Option A: `visitor_id` in URL Path
+```bash
+curl -X POST http://localhost:5000/api/visitors/VIS1001/approve \
+  -H "Authorization: Bearer <EMPLOYEE_JWT_TOKEN>"
+```
+
+#### Option B: `visitor_id` in JSON Body
+```bash
+curl -X POST http://localhost:5000/api/visitors/approve \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <EMPLOYEE_JWT_TOKEN>" \
+  -d '{ "visitor_id": "VIS1001" }'
+```
+
+#### Option C: `PATCH` Status Endpoint
+```bash
+curl -X PATCH http://localhost:5000/api/visitors/status \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <EMPLOYEE_JWT_TOKEN>" \
+  -d '{
+    "visitor_id": "VIS1001",
+    "status": "APPROVED"
+  }'
+```
+
+#### Success Response (`200 OK`)
+```json
+{
+  "success": true,
+  "message": "Visitor request for 'VIS1001' has been approved successfully.",
+  "data": {
+    "id": 1,
+    "visitor_id": "VIS1001",
+    "status": "APPROVED"
+  }
+}
+```
+
+---
+
+### 3.3 Employee Rejects Visitor Request (Using `visitor_id`)
+Host employee rejects the visitor request by passing `visitor_id` in URL path or JSON body.
+
+#### Option A: `visitor_id` in URL Path
+```bash
+curl -X POST http://localhost:5000/api/visitors/VIS1001/reject \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <EMPLOYEE_JWT_TOKEN>" \
+  -d '{ "rejection_reason": "Not available at office today" }'
+```
+
+#### Option B: `visitor_id` in JSON Body
+```bash
+curl -X POST http://localhost:5000/api/visitors/reject \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <EMPLOYEE_JWT_TOKEN>" \
+  -d '{
+    "visitor_id": "VIS1001",
+    "rejection_reason": "Not available at office today"
+  }'
+```
+
+---
+
+### 3.4 Admin / Reception / Employee List Visitors
+- **Admin & Reception**: Retrieves all visitor records.
+- **Employee**: Retrieves only assigned visitors (`host_employee_id` = logged-in employee ID).
+
+```bash
+curl -X GET http://localhost:5000/api/visitors \
+  -H "Authorization: Bearer <JWT_TOKEN>"
+```
+
+#### Success Response (`200 OK`)
+```json
+{
+  "success": true,
+  "message": "Visitors fetched successfully.",
+  "count": 1,
+  "data": [
+    {
+      "id": 1,
+      "visitor_id": "VIS1001",
+      "photo": "/uploads/visitors/visitor_1723000000_1234.jpg",
+      "full_name": "Amit Patel",
+      "email": "amit.patel@example.com",
+      "mobile": "9876543210",
+      "office_name": "Infosys Ltd",
+      "host_employee_id": "EMP1001",
+      "host_employee_name": "Rahul Sharma",
+      "host_department": "Engineering",
+      "purpose": "Business Meeting",
+      "visitor_type": "Vendor",
+      "notes": "Arriving for Q3 project discussion",
+      "status": "APPROVED",
+      "created_at": "2026-08-06T13:37:00.000Z"
+    }
+  ]
+}
+```
+
+
