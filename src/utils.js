@@ -93,6 +93,7 @@ export const generateToken = (user) => {
   const payload = {
     id: user.id,
     employee_id: user.employee_id || null,
+    full_name: user.full_name || null,
     username: user.username,
     role: user.role,
   };

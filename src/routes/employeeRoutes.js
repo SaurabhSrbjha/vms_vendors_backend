@@ -11,15 +11,15 @@ import { verifyToken, requireRole } from "../utils.js";
 
 const router = express.Router();
 
-// All employee management routes are protected and require Admin role
-router.use(verifyToken, requireRole("admin"));
+// GET endpoints allowed for admin, reception, and employee roles (for dropdown selection)
+router.get("/", verifyToken, requireRole("admin", "reception", "employee"), getEmployees);
+router.get("/:id", verifyToken, requireRole("admin", "reception", "employee"), getEmployeeById);
 
-router.get("/", getEmployees);
-router.get("/:id", getEmployeeById);
-router.post("/", createEmployee);
-router.put("/:id", updateEmployee);
-router.patch("/:id/status", toggleEmployeeStatus);
-router.delete("/:id", deleteEmployee);
+// Admin-only management endpoints
+router.post("/", verifyToken, requireRole("admin"), createEmployee);
+router.put("/:id", verifyToken, requireRole("admin"), updateEmployee);
+router.patch("/:id/status", verifyToken, requireRole("admin"), toggleEmployeeStatus);
+router.delete("/:id", verifyToken, requireRole("admin"), deleteEmployee);
 
 export default router;
 

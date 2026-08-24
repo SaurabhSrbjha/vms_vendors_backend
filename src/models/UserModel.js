@@ -10,6 +10,7 @@ export const UserModel = {
     password: "TEXT NOT NULL",
     role: "VARCHAR(50) NOT NULL",
     status: "VARCHAR(50) DEFAULT 'active'",
+    fcm_token: "TEXT",
     created_at: "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
     updated_at: "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
   },

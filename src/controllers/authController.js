@@ -7,7 +7,7 @@ import { comparePassword, generateToken } from "../utils.js";
  */
 export const login = async (req, res) => {
   try {
-    const { username, password, device_type } = req.body;
+    const { username, password, device_type, fcm_token, fcmToken } = req.body;
 
     if (!username || !password) {
       return res.status(400).json({
@@ -26,7 +26,7 @@ export const login = async (req, res) => {
     // 1. Find user from users table using username
     const { rows } = await pool.query(
       "SELECT id, employee_id, username, password, role, status FROM users WHERE username = $1",
-      [username.trim()]
+      [username.trim()],
     );
 
     if (rows.length === 0) {
@@ -62,7 +62,8 @@ export const login = async (req, res) => {
     if (user.status !== "active") {
       return res.status(403).json({
         success: false,
-        message: "User account is inactive. Please contact system administrator.",
+        message:
+          "User account is inactive. Please contact system administrator.",
       });
     }
 
@@ -90,17 +91,32 @@ export const login = async (req, res) => {
       });
     }
 
+    // Save/Update FCM Token if provided during login
+    const tokenToSave = (fcm_token || fcmToken || "").trim();
+    if (tokenToSave) {
+      // Unbind token from any other users to ensure notifications go strictly to this logged-in user
+      await pool.query(
+        "UPDATE users SET fcm_token = NULL WHERE fcm_token = $1 AND id != $2",
+        [tokenToSave, user.id]
+      );
+      await pool.query(
+        "UPDATE users SET fcm_token = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
+        [tokenToSave, user.id]
+      );
+    }
+
     // Fetch full name from employees table if applicable
     let full_name = user.username;
     if (user.employee_id) {
       const empRes = await pool.query(
         "SELECT full_name FROM employees WHERE employee_id = $1",
-        [user.employee_id]
+        [user.employee_id],
       );
       if (empRes.rows.length > 0) {
         full_name = empRes.rows[0].full_name;
       }
     }
+    user.full_name = full_name;
 
     // 6. Generate JWT token
     const token = generateToken(user);
@@ -117,6 +133,7 @@ export const login = async (req, res) => {
         full_name: full_name,
         role: user.role,
         status: user.status,
+        fcm_token_registered: Boolean(tokenToSave),
       },
     });
   } catch (error) {
@@ -144,8 +161,8 @@ export const getProfile = async (req, res) => {
     }
 
     const { rows } = await pool.query(
-      "SELECT id, employee_id, username, role, status, created_at, updated_at FROM users WHERE id = $1",
-      [userId]
+      "SELECT id, employee_id, username, role, status, fcm_token, created_at, updated_at FROM users WHERE id = $1",
+      [userId],
     );
 
     if (rows.length === 0) {
@@ -161,7 +178,7 @@ export const getProfile = async (req, res) => {
     if (userData.employee_id) {
       const empRes = await pool.query(
         "SELECT full_name, email, mobile, department, designation FROM employees WHERE employee_id = $1",
-        [userData.employee_id]
+        [userData.employee_id],
       );
       if (empRes.rows.length > 0) {
         userData.employee_details = empRes.rows[0];
@@ -186,10 +203,66 @@ export const getProfile = async (req, res) => {
   }
 };
 
+export const updateFcmToken = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    const { fcm_token, fcmToken } = req.body;
+    const tokenToSave = (fcm_token || fcmToken || "").trim();
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized access",
+      });
+    }
+
+    if (!tokenToSave) {
+      return res.status(400).json({
+        success: false,
+        message: "fcm_token or fcmToken is required.",
+      });
+    }
+
+    // Unbind token from any other user
+    await pool.query(
+      "UPDATE users SET fcm_token = NULL WHERE fcm_token = $1 AND id != $2",
+      [tokenToSave, userId]
+    );
+
+    await pool.query(
+      "UPDATE users SET fcm_token = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
+      [tokenToSave, userId]
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "FCM token updated successfully.",
+    });
+  } catch (error) {
+    console.error("Error in updateFcmToken:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error while updating FCM token.",
+    });
+  }
+};
+
 /**
  * POST /api/logout
  */
 export const logout = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    if (userId) {
+      // Clear fcm_token on logout so user stops receiving notifications on logout
+      await pool.query(
+        "UPDATE users SET fcm_token = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = $1",
+        [userId]
+      );
+    }
+  } catch (err) {
+    console.warn("Error clearing FCM token on logout:", err.message);
+  }
   return res.status(200).json({
     success: true,
     message: "Logout successful",

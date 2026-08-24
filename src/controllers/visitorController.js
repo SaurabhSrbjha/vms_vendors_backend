@@ -1,5 +1,6 @@
 import pool from "../config/db.js";
 import { saveBase64Image, generateAutoVisitorId } from "../utils.js";
+import { sendVisitorArrivalNotification, sendVisitorStatusNotification } from "../config/firebase.js";
 
 /**
  * Create Visitor (Receptionist / Admin)
@@ -27,14 +28,14 @@ export const createVisitor = async (req, res) => {
       notes,
     } = req.body;
 
-    const vFullName = (fullName || full_name || "").trim();
-    const vMobile = (mobile || "").trim();
-    const vHostEmpId = (hostEmployeeId || host_employee_id || "").trim();
-    const vEmail = (email || "").trim();
-    const vOfficeName = (officeName || office_name || "").trim();
-    const vPurpose = (purpose || "").trim();
-    const vVisitorType = (visitorType || visitor_type || "").trim();
-    const vNotes = (notes || "").trim();
+    const vFullName = String(fullName || full_name || req.body?.name || "").trim();
+    const vMobile = String(mobile || req.body?.phone || "").trim();
+    const vHostEmpId = String(hostEmployeeId || host_employee_id || req.body?.hostEmployee?.employee_id || req.body?.hostEmployee?.id || "").trim();
+    const vEmail = String(email || "").trim();
+    const vOfficeName = String(officeName || office_name || req.body?.company || "").trim();
+    const vPurpose = String(purpose || "").trim();
+    const vVisitorType = String(visitorType || visitor_type || "").trim();
+    const vNotes = String(notes || "").trim();
 
     if (!vFullName || !vMobile || !vHostEmpId) {
       return res.status(400).json({
@@ -43,19 +44,19 @@ export const createVisitor = async (req, res) => {
       });
     }
 
-    // Auto-fetch host details from employees table if missing
-    let finalHostName = (hostEmployeeName || host_employee_name || "").trim();
-    let finalHostDept = (hostDepartment || host_department || "").trim();
+    // Auto-fetch host details and real employee_id from employees table
+    let finalHostEmpId = vHostEmpId;
+    let finalHostName = String(hostEmployeeName || host_employee_name || req.body?.host_name || req.body?.hostEmployee?.full_name || req.body?.hostEmployee?.name || "").trim();
+    let finalHostDept = String(hostDepartment || host_department || "").trim();
 
-    if (!finalHostName || !finalHostDept) {
-      const empRes = await pool.query(
-        "SELECT full_name, department FROM employees WHERE employee_id = $1",
-        [vHostEmpId]
-      );
-      if (empRes.rows.length > 0) {
-        if (!finalHostName) finalHostName = empRes.rows[0].full_name;
-        if (!finalHostDept) finalHostDept = empRes.rows[0].department;
-      }
+    const empRes = await pool.query(
+      "SELECT employee_id, full_name, department FROM employees WHERE employee_id = $1 OR id::text = $1",
+      [vHostEmpId]
+    );
+    if (empRes.rows.length > 0) {
+      if (empRes.rows[0].employee_id) finalHostEmpId = empRes.rows[0].employee_id;
+      if (!finalHostName) finalHostName = empRes.rows[0].full_name;
+      if (!finalHostDept) finalHostDept = empRes.rows[0].department;
     }
 
     // Generate Auto Visitor ID (e.g. VIS1001)
@@ -67,9 +68,25 @@ export const createVisitor = async (req, res) => {
       photoPath = saveBase64Image(photo, "visitors");
     }
 
-    // Receptionist info from logged in user token if available
-    const receptionistId = req.user?.employee_id || req.user?.username || null;
-    const receptionistName = req.user?.full_name || req.user?.username || null;
+    // Receptionist info from logged in user token / employees table
+    let receptionistId = req.user?.employee_id || req.user?.username || null;
+    let receptionistName = req.user?.full_name || req.user?.name || null;
+
+    if (!receptionistName && receptionistId) {
+      const recepRes = await pool.query(
+        "SELECT full_name, employee_id FROM employees WHERE employee_id = $1 OR id::text = $1 OR employee_id IN (SELECT employee_id FROM users WHERE username = $1)",
+        [receptionistId]
+      );
+      if (recepRes.rows.length > 0) {
+        receptionistName = recepRes.rows[0].full_name;
+        if (recepRes.rows[0].employee_id) {
+          receptionistId = recepRes.rows[0].employee_id;
+        }
+      }
+    }
+    if (!receptionistName) {
+      receptionistName = req.user?.username || 'Receptionist';
+    }
 
     const insertQuery = `
       INSERT INTO visitors (
@@ -88,7 +105,7 @@ export const createVisitor = async (req, res) => {
       vEmail,
       vMobile,
       vOfficeName,
-      vHostEmpId,
+      finalHostEmpId,
       finalHostName,
       finalHostDept,
       vPurpose,
@@ -98,10 +115,27 @@ export const createVisitor = async (req, res) => {
       receptionistName,
     ]);
 
+    const createdVisitor = rows[0];
+
+    // Trigger Firebase Notification to Host Employee (Non-blocking background process)
+    (async () => {
+      try {
+        const userRes = await pool.query(
+          "SELECT fcm_token FROM users WHERE (employee_id = $1 OR employee_id = $2 OR username = $1 OR username = $2 OR id::text = $1) AND fcm_token IS NOT NULL AND TRIM(fcm_token) != ''",
+          [vHostEmpId, finalHostEmpId]
+        );
+        if (userRes.rows.length > 0 && userRes.rows[0].fcm_token) {
+          await sendVisitorArrivalNotification(userRes.rows[0].fcm_token, createdVisitor);
+        }
+      } catch (fcmErr) {
+        console.error("⚠️ Background FCM notification error:", fcmErr.message);
+      }
+    })();
+
     return res.status(201).json({
       success: true,
       message: "Visitor created successfully and sent for host approval.",
-      data: rows[0],
+      data: createdVisitor,
     });
   } catch (error) {
     console.error("❌ Error creating visitor:", error);
@@ -159,11 +193,22 @@ export const updateVisitorStatus = async (req, res) => {
 
     // If user is employee, verify host ID match
     if (req.user.role === "employee") {
-      if (visitor.host_employee_id !== req.user.employee_id) {
-        return res.status(403).json({
-          success: false,
-          message: "Forbidden. You can only approve or reject visitors assigned to you.",
-        });
+      const empIdVal = req.user.employee_id || req.user.username;
+      const isMatch =
+        visitor.host_employee_id === empIdVal ||
+        visitor.host_employee_id === String(req.user.id);
+
+      if (!isMatch) {
+        const empCheck = await pool.query(
+          "SELECT id, employee_id FROM employees WHERE (employee_id = $1 OR id::text = $1) AND (employee_id = $2 OR id::text = $2)",
+          [visitor.host_employee_id, empIdVal]
+        );
+        if (empCheck.rows.length === 0) {
+          return res.status(403).json({
+            success: false,
+            message: "Forbidden. You can only approve or reject visitors assigned to you.",
+          });
+        }
       }
     }
 
@@ -177,11 +222,29 @@ export const updateVisitorStatus = async (req, res) => {
     `;
 
     const result = await pool.query(updateQuery, [newStatus, updatedNotes, visitor.id]);
+    const updatedVisitor = result.rows[0];
+
+    // Trigger FCM Notification on status update (Non-blocking background process)
+    (async () => {
+      try {
+        if (visitor.receptionist_id) {
+          const recepRes = await pool.query(
+            "SELECT fcm_token FROM users WHERE (employee_id = $1 OR username = $1) AND fcm_token IS NOT NULL AND TRIM(fcm_token) != ''",
+            [visitor.receptionist_id]
+          );
+          if (recepRes.rows.length > 0 && recepRes.rows[0].fcm_token) {
+            await sendVisitorStatusNotification(recepRes.rows[0].fcm_token, updatedVisitor, newStatus);
+          }
+        }
+      } catch (fcmErr) {
+        console.error("⚠️ Background FCM status notification error:", fcmErr.message);
+      }
+    })();
 
     return res.status(200).json({
       success: true,
       message: `Visitor request for '${visitor.visitor_id}' has been ${newStatus.toLowerCase()} successfully.`,
-      data: result.rows[0],
+      data: updatedVisitor,
     });
   } catch (error) {
     console.error("❌ Error updating visitor status:", error);
@@ -225,11 +288,26 @@ export const getVisitors = async (req, res) => {
 
     // Scope for Employee role
     if (role === "employee") {
-      conditions.push(`host_employee_id = $${paramIdx++}`);
-      values.push(employee_id);
+      const empIdVal = employee_id || req.user?.username;
+      conditions.push(
+        `(host_employee_id = $${paramIdx} OR host_employee_id IN (
+          SELECT id::text FROM employees WHERE employee_id = $${paramIdx} OR id::text = $${paramIdx}
+        ) OR host_employee_id IN (
+          SELECT employee_id FROM employees WHERE id::text = $${paramIdx} OR employee_id = $${paramIdx}
+        ))`
+      );
+      values.push(empIdVal);
+      paramIdx++;
     } else if (hostEmployeeId) {
-      conditions.push(`host_employee_id = $${paramIdx++}`);
+      conditions.push(
+        `(host_employee_id = $${paramIdx} OR host_employee_id IN (
+          SELECT id::text FROM employees WHERE employee_id = $${paramIdx} OR id::text = $${paramIdx}
+        ) OR host_employee_id IN (
+          SELECT employee_id FROM employees WHERE id::text = $${paramIdx} OR employee_id = $${paramIdx}
+        ))`
+      );
       values.push(hostEmployeeId);
+      paramIdx++;
     }
 
     // Status filter
@@ -297,11 +375,24 @@ export const getVisitorById = async (req, res) => {
 
     const visitor = rows[0];
 
-    if (role === "employee" && visitor.host_employee_id !== employee_id) {
-      return res.status(403).json({
-        success: false,
-        message: "Forbidden. You can only view visitors assigned to you.",
-      });
+    if (role === "employee") {
+      const empIdVal = employee_id || req.user?.username;
+      const isMatch =
+        visitor.host_employee_id === empIdVal ||
+        visitor.host_employee_id === String(req.user.id);
+
+      if (!isMatch) {
+        const empCheck = await pool.query(
+          "SELECT id, employee_id FROM employees WHERE (employee_id = $1 OR id::text = $1) AND (employee_id = $2 OR id::text = $2)",
+          [visitor.host_employee_id, empIdVal]
+        );
+        if (empCheck.rows.length === 0) {
+          return res.status(403).json({
+            success: false,
+            message: "Forbidden. You can only view visitors assigned to you.",
+          });
+        }
+      }
     }
 
     return res.status(200).json({
