@@ -8,16 +8,25 @@ dotenv.config();
 let firebaseInitialized = false;
 
 try {
-  const serviceAccountPath = path.resolve(
-    process.env.FIREBASE_SERVICE_ACCOUNT_PATH || "./src/config/firebase-service-account.json"
-  );
+  let serviceAccountPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH
+    ? path.resolve(process.env.FIREBASE_SERVICE_ACCOUNT_PATH)
+    : path.resolve("./src/config/firebase-service-account.json");
+
+  if (!fs.existsSync(serviceAccountPath)) {
+    const fallbackPath = path.resolve("./src/config/firebase-service-account.json");
+    if (fs.existsSync(fallbackPath)) {
+      serviceAccountPath = fallbackPath;
+    }
+  }
 
   if (fs.existsSync(serviceAccountPath)) {
     const serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, "utf8"));
 
-    if (!admin.apps.length) {
+    const apps = admin.apps || admin.getApps?.() || [];
+    if (!apps.length) {
+      const certFunc = admin.credential?.cert || admin.cert;
       admin.initializeApp({
-        credential: admin.credential.cert(serviceAccount),
+        credential: certFunc(serviceAccount),
       });
     }
     firebaseInitialized = true;

@@ -1,9 +1,11 @@
 import { UserModel } from "./UserModel.js";
 import { EmployeeModel } from "./EmployeeModel.js";
 import { VisitorModel } from "./VisitorModel.js";
+import { ensureDatabaseExists } from "../config/db.js";
 
 export async function syncAllModels() {
   try {
+    await ensureDatabaseExists();
     await UserModel.sync();
     await EmployeeModel.sync();
     await VisitorModel.sync();
