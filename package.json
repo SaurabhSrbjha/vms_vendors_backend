@@ -7,6 +7,8 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "nodemon src/server.js",
     "seed": "node src/seedSuperAdmin.js && node src/seedTestEmployee.js",
+    "seed:admin": "node src/seedSuperAdmin.js",
+    "fresh:admin": "node src/freshSetup.js",
     "dev": "yarn run seed && yarn run start"
   },
   "keywords": [],
