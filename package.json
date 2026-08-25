@@ -5,11 +5,12 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "nodemon src/server.js",
+    "start": "node src/server.js",
+    "start:prod": "yarn run seed:admin && node src/server.js",
+    "dev": "yarn run seed && nodemon src/server.js",
     "seed": "node src/seedSuperAdmin.js && node src/seedTestEmployee.js",
     "seed:admin": "node src/seedSuperAdmin.js",
-    "fresh:admin": "node src/freshSetup.js",
-    "dev": "yarn run seed:admin && yarn run start"
+    "fresh:admin": "node src/freshSetup.js"
   },
   "keywords": [],
   "author": "saurabhjha 8800332955 saurabhjha308@gmail.com",
