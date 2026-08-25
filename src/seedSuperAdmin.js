@@ -7,8 +7,8 @@ async function seedAdmin() {
     console.log("Syncing database models...");
     await syncAllModels();
 
-    const username = process.env.ADMIN_USERNAME || "admin";
-    const password = process.env.ADMIN_PASSWORD || "admin123";
+    const username = process.env.ADMIN_USERNAME || "ebwsVms_admin";
+    const password = process.env.ADMIN_PASSWORD || "ebwsVmsAdmin@123";
     const role = "admin";
     const status = "active";
 
