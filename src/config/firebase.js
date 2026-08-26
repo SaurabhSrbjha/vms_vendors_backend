@@ -1,4 +1,5 @@
 import admin from "firebase-admin";
+import { getMessaging } from "firebase-admin/messaging";
 import fs from "fs";
 import path from "path";
 import dotenv from "dotenv";
@@ -39,6 +40,20 @@ try {
 } catch (error) {
   console.error("❌ Failed to initialize Firebase Admin SDK:", error.message);
 }
+
+const getMessagingInstance = () => {
+  try {
+    if (typeof getMessaging === "function") {
+      return getMessaging();
+    }
+    if (admin && typeof admin.messaging === "function") {
+      return admin.messaging();
+    }
+  } catch (err) {
+    console.error("⚠️ Error getting FCM messaging instance:", err?.message || err);
+  }
+  return null;
+};
 
 /**
  * Send FCM Push Notification to Host Employee when Visitor arrives
@@ -88,7 +103,12 @@ export const sendVisitorArrivalNotification = async (fcmToken, visitorData) => {
   };
 
   try {
-    const response = await admin.messaging().send(message);
+    const msgInstance = getMessagingInstance();
+    if (!msgInstance) {
+      console.error("❌ Error: Firebase messaging instance is null");
+      return false;
+    }
+    const response = await msgInstance.send(message);
     console.log(`✅ Visitor arrival FCM notification sent successfully to token ${fcmToken.slice(0, 10)}... MessageId:`, response);
     return true;
   } catch (error) {
@@ -121,7 +141,12 @@ export const sendVisitorStatusNotification = async (fcmToken, visitorData, statu
   };
 
   try {
-    await admin.messaging().send(message);
+    const msgInstance = getMessagingInstance();
+    if (!msgInstance) {
+      console.error("❌ Error: Firebase messaging instance is null");
+      return false;
+    }
+    await msgInstance.send(message);
     return true;
   } catch (error) {
     console.error("❌ Error sending FCM status notification:", error.message);
