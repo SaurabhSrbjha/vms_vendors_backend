@@ -23,6 +23,10 @@ try {
   if (fs.existsSync(serviceAccountPath)) {
     const serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, "utf8"));
 
+    if (serviceAccount.private_key && typeof serviceAccount.private_key === "string") {
+      serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, "\n");
+    }
+
     const apps = admin.apps || admin.getApps?.() || [];
     if (!apps.length) {
       const certFunc = admin.credential?.cert || admin.cert;
