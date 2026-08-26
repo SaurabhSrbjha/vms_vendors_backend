@@ -2,29 +2,34 @@ import admin from "firebase-admin";
 import { getMessaging } from "firebase-admin/messaging";
 import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 
 dotenv.config();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 let firebaseInitialized = false;
 
 try {
   let serviceAccountPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH
     ? path.resolve(process.env.FIREBASE_SERVICE_ACCOUNT_PATH)
-    : path.resolve("./src/config/firebase-service-account.json");
+    : path.join(__dirname, "firebase-service-account.json");
 
   if (!fs.existsSync(serviceAccountPath)) {
-    const fallbackPath = path.resolve("./src/config/firebase-service-account.json");
-    if (fs.existsSync(fallbackPath)) {
-      serviceAccountPath = fallbackPath;
-    }
+    serviceAccountPath = path.join(__dirname, "firebase-service-account.json");
   }
+
+  console.log(`📁 Loading Firebase Service Account from: ${serviceAccountPath}`);
 
   if (fs.existsSync(serviceAccountPath)) {
     const serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, "utf8"));
 
     if (serviceAccount.private_key && typeof serviceAccount.private_key === "string") {
-      serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, "\n");
+      serviceAccount.private_key = serviceAccount.private_key
+        .replace(/\\n/g, "\n")
+        .replace(/\\\\n/g, "\n");
     }
 
     const apps = admin.apps || admin.getApps?.() || [];
