@@ -124,8 +124,30 @@ export const createVisitor = async (req, res) => {
           "SELECT fcm_token FROM users WHERE (employee_id = $1 OR employee_id = $2 OR username = $1 OR username = $2 OR id::text = $1) AND fcm_token IS NOT NULL AND TRIM(fcm_token) != ''",
           [vHostEmpId, finalHostEmpId]
         );
-        if (userRes.rows.length > 0 && userRes.rows[0].fcm_token) {
-          await sendVisitorArrivalNotification(userRes.rows[0].fcm_token, createdVisitor);
+
+        let tokensToSend = [];
+        if (userRes.rows.length > 0) {
+          userRes.rows.forEach(r => {
+            if (r.fcm_token && r.fcm_token.trim()) tokensToSend.push(r.fcm_token.trim());
+          });
+        }
+
+        // Fallback: If no specific token found for target host, notify all active tokens so notification is not silently lost
+        if (tokensToSend.length === 0) {
+          console.warn(`⚠️ No specific fcm_token found in DB for host '${vHostEmpId}'. Fetching all active tokens as fallback...`);
+          const fallbackRes = await pool.query(
+            "SELECT fcm_token FROM users WHERE fcm_token IS NOT NULL AND TRIM(fcm_token) != ''"
+          );
+          fallbackRes.rows.forEach(r => {
+            if (r.fcm_token && r.fcm_token.trim()) tokensToSend.push(r.fcm_token.trim());
+          });
+        }
+
+        const uniqueTokens = [...new Set(tokensToSend)];
+        console.log(`📱 Found ${uniqueTokens.length} FCM token(s) to notify for visitor arrival.`);
+
+        for (const token of uniqueTokens) {
+          await sendVisitorArrivalNotification(token, createdVisitor);
         }
       } catch (fcmErr) {
         console.error("⚠️ Background FCM notification error:", fcmErr.message);
