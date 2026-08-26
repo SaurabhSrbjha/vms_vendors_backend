@@ -35,7 +35,7 @@ try {
       });
     }
     firebaseInitialized = true;
-    console.log("🔥 Firebase Admin SDK initialized successfully.");
+    console.log(`🔥 Firebase Admin SDK initialized for project '${serviceAccount.project_id || "UNKNOWN"}' (${serviceAccount.client_email || ""}).`);
   } else {
     console.warn(
       `⚠️ Firebase service account file not found at: ${serviceAccountPath}. Push notifications will be disabled until valid key is placed.`
