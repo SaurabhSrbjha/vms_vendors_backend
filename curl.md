@@ -453,7 +453,7 @@ curl -X DELETE http://localhost:5000/api/employees/1 \
 ## 3. Visitor Management Module
 
 ### 3.1 Employee Pre-Registers Visitor (Auto-Approved)
-Allows an employee to pre-register a visitor for themselves. The status is automatically set to `APPROVED`.
+Allows an employee to pre-register a visitor for themselves. The status is automatically set to `APPROVED`. Note: `visitDate` (or `visit_date`) is mandatory. `receptionist_id` and `receptionist_name` remain `null`.
 
 ```bash
 curl -X POST http://localhost:5000/api/visitors/pre-register \
@@ -466,6 +466,7 @@ curl -X POST http://localhost:5000/api/visitors/pre-register \
     "officeName": "TCS",
     "purpose": "Vendor Discussion",
     "visitorType": "Pre-Registered",
+    "visitDate": "2026-09-01",
     "notes": "Pre-registered by host employee"
   }'
 ```
@@ -488,10 +489,11 @@ curl -X POST http://localhost:5000/api/visitors/pre-register \
     "host_department": "Engineering",
     "purpose": "Vendor Discussion",
     "visitor_type": "Pre-Registered",
+    "visit_date": "2026-09-01",
     "notes": "Pre-registered by host employee",
     "status": "APPROVED",
-    "receptionist_id": "EMP1001",
-    "receptionist_name": "Rahul Sharma",
+    "receptionist_id": null,
+    "receptionist_name": null,
     "created_at": "2026-08-31T15:00:00.000Z",
     "updated_at": "2026-08-31T15:00:00.000Z"
   }

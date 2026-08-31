@@ -33,14 +33,28 @@ try {
     }
 
     const apps = admin.apps || admin.getApps?.() || [];
-    if (!apps.length) {
+    let appInstance = apps.length ? apps[0] : null;
+    if (!appInstance) {
       const certFunc = admin.credential?.cert || admin.cert;
-      admin.initializeApp({
+      appInstance = admin.initializeApp({
         credential: certFunc(serviceAccount),
       });
     }
     firebaseInitialized = true;
     console.log(`🔥 Firebase Admin SDK initialized for project '${serviceAccount.project_id || "UNKNOWN"}' (${serviceAccount.client_email || ""}).`);
+
+    // Verify Google OAuth Token on startup
+    if (appInstance && appInstance.options && appInstance.options.credential) {
+      appInstance.options.credential.getAccessToken()
+        .then(tok => {
+          console.log(`✅ Firebase Google OAuth Token Verified! (Expires in ${tok.expires_in || 3600}s)`);
+        })
+        .catch(err => {
+          console.error(`❌ Firebase Google OAuth Token Failed! Error: ${err.message}`);
+          console.error(`⏰ Server System Time: ${new Date().toISOString()} (${new Date().toLocaleString()})`);
+          console.error(`📌 Project ID: '${serviceAccount.project_id}', Client Email: '${serviceAccount.client_email}'`);
+        });
+    }
   } else {
     console.warn(
       `⚠️ Firebase service account file not found at: ${serviceAccountPath}. Push notifications will be disabled until valid key is placed.`

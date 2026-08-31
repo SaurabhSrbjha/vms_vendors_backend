@@ -88,13 +88,22 @@ export const createVisitor = async (req, res) => {
       receptionistName = req.user?.username || 'Receptionist';
     }
 
+    const vVisitDate = String(
+      req.body.visitDate ||
+      req.body.visit_date ||
+      req.body.expectedDate ||
+      req.body.expected_date ||
+      req.body.date ||
+      new Date().toISOString().split("T")[0]
+    ).trim();
+
     const insertQuery = `
       INSERT INTO visitors (
         visitor_id, photo, full_name, email, mobile, office_name,
         host_employee_id, host_employee_name, host_department,
-        purpose, visitor_type, notes, status, receptionist_id, receptionist_name
+        purpose, visitor_type, visit_date, notes, status, receptionist_id, receptionist_name
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'PENDING', $13, $14)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'PENDING', $14, $15)
       RETURNING *;
     `;
 
@@ -110,6 +119,7 @@ export const createVisitor = async (req, res) => {
       finalHostDept,
       vPurpose,
       vVisitorType,
+      vVisitDate,
       vNotes,
       receptionistId,
       receptionistName,
@@ -173,6 +183,8 @@ export const createVisitor = async (req, res) => {
  * Pre-Register Visitor (Employee / Admin / Reception)
  * Allows employee to pre-register visitors themselves.
  * Status defaults to 'APPROVED' as it is pre-registered by the employee host.
+ * receptionist_id and receptionist_name remain NULL for pre-registration.
+ * visitDate is mandatory.
  */
 export const preRegisterVisitor = async (req, res) => {
   try {
@@ -193,6 +205,10 @@ export const preRegisterVisitor = async (req, res) => {
       purpose,
       visitorType,
       visitor_type,
+      visitDate,
+      visit_date,
+      expectedDate,
+      expected_date,
       notes,
     } = req.body;
 
@@ -202,12 +218,13 @@ export const preRegisterVisitor = async (req, res) => {
     const vOfficeName = String(officeName || office_name || req.body?.company || "").trim();
     const vPurpose = String(purpose || "").trim();
     const vVisitorType = String(visitorType || visitor_type || "PRE_REGISTERED").trim();
+    const vVisitDate = String(visitDate || visit_date || expectedDate || expected_date || req.body?.date || "").trim();
     const vNotes = String(notes || "").trim();
 
-    if (!vFullName || !vMobile) {
+    if (!vFullName || !vMobile || !vVisitDate) {
       return res.status(400).json({
         success: false,
-        message: "fullName and mobile are required fields for pre-registration.",
+        message: "fullName, mobile, and visitDate (visit_date) are required fields for pre-registration.",
       });
     }
 
@@ -248,9 +265,9 @@ export const preRegisterVisitor = async (req, res) => {
       INSERT INTO visitors (
         visitor_id, photo, full_name, email, mobile, office_name,
         host_employee_id, host_employee_name, host_department,
-        purpose, visitor_type, notes, status, receptionist_id, receptionist_name
+        purpose, visitor_type, visit_date, notes, status, receptionist_id, receptionist_name
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'APPROVED', $13, $14)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'APPROVED', NULL, NULL)
       RETURNING *;
     `;
 
@@ -266,9 +283,8 @@ export const preRegisterVisitor = async (req, res) => {
       finalHostDept,
       vPurpose,
       vVisitorType,
+      vVisitDate,
       vNotes,
-      req.user?.employee_id || req.user?.username || null,
-      finalHostName,
     ]);
 
     const createdVisitor = rows[0];

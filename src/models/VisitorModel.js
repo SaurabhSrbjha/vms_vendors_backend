@@ -16,6 +16,7 @@ export const VisitorModel = {
     host_department: "VARCHAR(100)",
     purpose: "VARCHAR(200)",
     visitor_type: "VARCHAR(100)",
+    visit_date: "VARCHAR(50)",
     notes: "TEXT",
     status: "VARCHAR(50) DEFAULT 'PENDING'",
     receptionist_id: "VARCHAR(100)",
