@@ -27,10 +27,17 @@ try {
     const serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, "utf8"));
 
     if (serviceAccount.private_key && typeof serviceAccount.private_key === "string") {
-      serviceAccount.private_key = serviceAccount.private_key
+      let rawKey = serviceAccount.private_key
         .replace(/\\n/g, "\n")
         .replace(/\\\\n/g, "\n")
+        .replace(/\r/g, "")
         .trim();
+
+      if (rawKey.startsWith('"') && rawKey.endsWith('"')) {
+        rawKey = rawKey.slice(1, -1);
+      }
+
+      serviceAccount.private_key = rawKey;
     }
 
     const apps = admin.apps || admin.getApps?.() || [];
