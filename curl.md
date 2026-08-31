@@ -452,7 +452,55 @@ curl -X DELETE http://localhost:5000/api/employees/1 \
 
 ## 3. Visitor Management Module
 
-### 3.1 Receptionist Adds New Visitor (With Base64 Photo)
+### 3.1 Employee Pre-Registers Visitor (Auto-Approved)
+Allows an employee to pre-register a visitor for themselves. The status is automatically set to `APPROVED`.
+
+```bash
+curl -X POST http://localhost:5000/api/visitors/pre-register \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <EMPLOYEE_JWT_TOKEN>" \
+  -d '{
+    "fullName": "Rohan Verma",
+    "email": "rohan.verma@example.com",
+    "mobile": "9812345678",
+    "officeName": "TCS",
+    "purpose": "Vendor Discussion",
+    "visitorType": "Pre-Registered",
+    "notes": "Pre-registered by host employee"
+  }'
+```
+
+#### Success Response (`201 Created`)
+```json
+{
+  "success": true,
+  "message": "Visitor pre-registered and approved successfully.",
+  "data": {
+    "id": 2,
+    "visitor_id": "VIS1002",
+    "photo": null,
+    "full_name": "Rohan Verma",
+    "email": "rohan.verma@example.com",
+    "mobile": "9812345678",
+    "office_name": "TCS",
+    "host_employee_id": "EMP1001",
+    "host_employee_name": "Rahul Sharma",
+    "host_department": "Engineering",
+    "purpose": "Vendor Discussion",
+    "visitor_type": "Pre-Registered",
+    "notes": "Pre-registered by host employee",
+    "status": "APPROVED",
+    "receptionist_id": "EMP1001",
+    "receptionist_name": "Rahul Sharma",
+    "created_at": "2026-08-31T15:00:00.000Z",
+    "updated_at": "2026-08-31T15:00:00.000Z"
+  }
+}
+```
+
+---
+
+### 3.2 Receptionist Adds New Visitor (With Base64 Photo)
 Creates a new visitor entry in `PENDING` status and saves the uploaded Base64 photo to local server storage.
 
 ```bash

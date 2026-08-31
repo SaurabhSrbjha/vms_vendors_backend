@@ -1,6 +1,7 @@
 import express from "express";
 import {
   createVisitor,
+  preRegisterVisitor,
   getVisitors,
   getVisitorById,
   updateVisitorStatus,
@@ -11,11 +12,19 @@ import { verifyToken, requireRole } from "../utils.js";
 
 const router = express.Router();
 
-// Visitor Creation by Receptionist or Admin
+// Visitor Pre-Registration by Employee (Auto-Approved)
+router.post(
+  "/pre-register",
+  verifyToken,
+  requireRole("employee", "admin", "reception"),
+  preRegisterVisitor
+);
+
+// Visitor Creation by Receptionist, Admin, or Employee
 router.post(
   "/",
   verifyToken,
-  requireRole("reception", "admin"),
+  requireRole("reception", "admin", "employee"),
   createVisitor
 );
 
@@ -35,32 +44,32 @@ router.get(
   getVisitorById
 );
 
-// Employee (Host) & Admin Approval / Rejection Routes (Body or URL Param)
+// Employee (Host), Receptionist & Admin Approval / Rejection Routes (Body or URL Param)
 router.patch(
   "/status",
   verifyToken,
-  requireRole("employee", "admin"),
+  requireRole("employee", "admin", "reception"),
   updateVisitorStatus
 );
 
 router.post(
   "/approve",
   verifyToken,
-  requireRole("employee", "admin"),
+  requireRole("employee", "admin", "reception"),
   approveVisitor
 );
 
 router.post(
   "/reject",
   verifyToken,
-  requireRole("employee", "admin"),
+  requireRole("employee", "admin", "reception"),
   rejectVisitor
 );
 
 router.patch(
   "/:id/status",
   verifyToken,
-  requireRole("employee", "admin"),
+  requireRole("employee", "admin", "reception"),
   updateVisitorStatus
 );
 

@@ -170,6 +170,126 @@ export const createVisitor = async (req, res) => {
 };
 
 /**
+ * Pre-Register Visitor (Employee / Admin / Reception)
+ * Allows employee to pre-register visitors themselves.
+ * Status defaults to 'APPROVED' as it is pre-registered by the employee host.
+ */
+export const preRegisterVisitor = async (req, res) => {
+  try {
+    const {
+      photo,
+      fullName,
+      full_name,
+      email,
+      mobile,
+      officeName,
+      office_name,
+      hostEmployeeId,
+      host_employee_id,
+      hostEmployeeName,
+      host_employee_name,
+      hostDepartment,
+      host_department,
+      purpose,
+      visitorType,
+      visitor_type,
+      notes,
+    } = req.body;
+
+    const vFullName = String(fullName || full_name || req.body?.name || "").trim();
+    const vMobile = String(mobile || req.body?.phone || "").trim();
+    const vEmail = String(email || "").trim();
+    const vOfficeName = String(officeName || office_name || req.body?.company || "").trim();
+    const vPurpose = String(purpose || "").trim();
+    const vVisitorType = String(visitorType || visitor_type || "PRE_REGISTERED").trim();
+    const vNotes = String(notes || "").trim();
+
+    if (!vFullName || !vMobile) {
+      return res.status(400).json({
+        success: false,
+        message: "fullName and mobile are required fields for pre-registration.",
+      });
+    }
+
+    // Identify target host employee
+    const userEmpId = req.user?.employee_id || req.user?.username || String(req.user?.id || "");
+    const targetHostId = String(hostEmployeeId || host_employee_id || userEmpId).trim();
+
+    let finalHostEmpId = targetHostId;
+    let finalHostName = String(hostEmployeeName || host_employee_name || req.user?.full_name || req.user?.name || "").trim();
+    let finalHostDept = String(hostDepartment || host_department || "").trim();
+
+    // Fetch employee details from DB if available
+    const empRes = await pool.query(
+      "SELECT employee_id, full_name, department FROM employees WHERE employee_id = $1 OR id::text = $1 OR employee_id IN (SELECT employee_id FROM users WHERE username = $1 OR id::text = $1)",
+      [targetHostId]
+    );
+
+    if (empRes.rows.length > 0) {
+      if (empRes.rows[0].employee_id) finalHostEmpId = empRes.rows[0].employee_id;
+      if (!finalHostName || finalHostName === "undefined") finalHostName = empRes.rows[0].full_name;
+      if (!finalHostDept) finalHostDept = empRes.rows[0].department;
+    }
+
+    if (!finalHostName || finalHostName === "undefined") {
+      finalHostName = req.user?.full_name || req.user?.username || "Employee";
+    }
+
+    // Auto Visitor ID (e.g. VIS1001)
+    const visitorId = await generateAutoVisitorId();
+
+    // Save Base64 photo if provided
+    let photoPath = null;
+    if (photo) {
+      photoPath = saveBase64Image(photo, "visitors");
+    }
+
+    const insertQuery = `
+      INSERT INTO visitors (
+        visitor_id, photo, full_name, email, mobile, office_name,
+        host_employee_id, host_employee_name, host_department,
+        purpose, visitor_type, notes, status, receptionist_id, receptionist_name
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'APPROVED', $13, $14)
+      RETURNING *;
+    `;
+
+    const { rows } = await pool.query(insertQuery, [
+      visitorId,
+      photoPath,
+      vFullName,
+      vEmail,
+      vMobile,
+      vOfficeName,
+      finalHostEmpId,
+      finalHostName,
+      finalHostDept,
+      vPurpose,
+      vVisitorType,
+      vNotes,
+      req.user?.employee_id || req.user?.username || null,
+      finalHostName,
+    ]);
+
+    const createdVisitor = rows[0];
+
+    return res.status(201).json({
+      success: true,
+      message: "Visitor pre-registered and approved successfully.",
+      data: createdVisitor,
+    });
+  } catch (error) {
+    console.error("❌ Error pre-registering visitor:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error while pre-registering visitor.",
+      error: error.message,
+    });
+  }
+};
+
+
+/**
  * Update Visitor Status (Approve / Reject)
  * Employee can approve/reject visitor requests assigned to them as host.
  * Admin can approve/reject any visitor request.

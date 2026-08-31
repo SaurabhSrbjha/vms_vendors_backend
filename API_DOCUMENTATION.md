@@ -20,6 +20,7 @@ Refer to [curl.md](file:///Users/apple/Documents/vmsBackends/vms_vendors_backend
 - `DELETE /api/employees/:id` - Delete employee record and associated user account.
 
 ### 3. Visitor Management Module
+- `POST /api/visitors/pre-register` - Employee pre-registers a visitor for themselves (Status is auto-set to `APPROVED`).
 - `POST /api/visitors` - Receptionist / Admin adds visitor record (accepts Base64 photo, defaults status to `PENDING`).
 - `GET /api/visitors` - View visitors list (Admin & Reception view all, Employee views assigned visitors).
 - `GET /api/visitors/:id` - Get single visitor details by numeric ID or `visitor_id`.
