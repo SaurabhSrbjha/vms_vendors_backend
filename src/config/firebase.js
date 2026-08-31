@@ -29,7 +29,8 @@ try {
     if (serviceAccount.private_key && typeof serviceAccount.private_key === "string") {
       serviceAccount.private_key = serviceAccount.private_key
         .replace(/\\n/g, "\n")
-        .replace(/\\\\n/g, "\n");
+        .replace(/\\\\n/g, "\n")
+        .trim();
     }
 
     const apps = admin.apps || admin.getApps?.() || [];
@@ -41,7 +42,7 @@ try {
       });
     }
     firebaseInitialized = true;
-    console.log(`🔥 Firebase Admin SDK initialized for project '${serviceAccount.project_id || "UNKNOWN"}' (${serviceAccount.client_email || ""}).`);
+    console.log(`🔥 Firebase Admin SDK initialized for project '${serviceAccount.project_id || "UNKNOWN"}' (${serviceAccount.client_email || ""}). KeyID: '${serviceAccount.private_key_id || ""}'`);
 
     // Verify Google OAuth Token on startup
     if (appInstance && appInstance.options && appInstance.options.credential) {
@@ -52,7 +53,7 @@ try {
         .catch(err => {
           console.error(`❌ Firebase Google OAuth Token Failed! Error: ${err.message}`);
           console.error(`⏰ Server System Time: ${new Date().toISOString()} (${new Date().toLocaleString()})`);
-          console.error(`📌 Project ID: '${serviceAccount.project_id}', Client Email: '${serviceAccount.client_email}'`);
+          console.error(`📌 Project ID: '${serviceAccount.project_id}', Key ID: '${serviceAccount.private_key_id}', Client Email: '${serviceAccount.client_email}'`);
         });
     }
   } else {
