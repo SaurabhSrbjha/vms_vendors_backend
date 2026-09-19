@@ -1,6 +1,6 @@
 /**
- * CORS Configuration
- * Configured to support Web, Mobile (React Native), DevTools, and local emulators.
+ * CORS Configuration and Middleware
+ * Supports Web, React Native, DevTools, Emulators, and Native Mobile requests.
  */
 
 export const allowedHeaders = [
@@ -24,17 +24,40 @@ export const allowedMethods = [
   "OPTIONS",
 ];
 
-export const corsOptions = {
-  // Allow all origins dynamically with credentials support
-  origin: (origin, callback) => {
-    callback(null, origin || "*");
-  },
-  credentials: true,
-  methods: allowedMethods,
-  allowedHeaders: allowedHeaders,
-  // 200 status code for preflight compatibility with legacy clients and older WebViews
-  optionsSuccessStatus: 200,
-  preflightContinue: false,
+/**
+ * Custom CORS middleware that guarantees:
+ * 1. Dynamic origin reflection with credentials (or '*' when no origin is provided).
+ * 2. Mirrors requested headers directly or supplies the full allowed headers list.
+ * 3. Immediately handles all OPTIONS preflights with status 200.
+ */
+export const corsMiddleware = (req, res, next) => {
+  const origin = req.headers.origin;
+
+  if (origin) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Vary", "Origin");
+    res.setHeader("Access-Control-Allow-Credentials", "true");
+  } else {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+  }
+
+  res.setHeader("Access-Control-Allow-Methods", allowedMethods.join(", "));
+
+  const requestedHeaders = req.headers["access-control-request-headers"];
+  if (requestedHeaders) {
+    res.setHeader("Access-Control-Allow-Headers", requestedHeaders);
+  } else {
+    res.setHeader("Access-Control-Allow-Headers", allowedHeaders.join(", "));
+  }
+
+  res.setHeader("Access-Control-Expose-Headers", "*");
+  res.setHeader("Access-Control-Max-Age", "86400");
+
+  if (req.method === "OPTIONS") {
+    return res.status(200).end();
+  }
+
+  next();
 };
 
-export default corsOptions;
+export default corsMiddleware;
