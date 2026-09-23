@@ -139,6 +139,31 @@ export const verifyToken = (req, res, next) => {
 };
 
 /**
+ * Optional JWT Verification Middleware
+ * Populates req.user if a valid token is provided, but allows request to proceed if no token.
+ */
+export const optionalVerifyToken = (req, res, next) => {
+  try {
+    const authHeader = req.headers.authorization;
+    const token = authHeader && authHeader.startsWith("Bearer ") ? authHeader.split(" ")[1] : null;
+
+    if (!token) {
+      return next();
+    }
+
+    const secret = process.env.JWT_SECRET || "default_jwt_secret";
+    jwt.verify(token, secret, (err, decoded) => {
+      if (!err && decoded) {
+        req.user = decoded;
+      }
+      next();
+    });
+  } catch (error) {
+    next();
+  }
+};
+
+/**
  * Role-Based Access Control (RBAC) Middleware
  */
 export const requireRole = (...roles) => {

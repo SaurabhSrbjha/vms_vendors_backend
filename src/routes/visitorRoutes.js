@@ -2,13 +2,14 @@ import express from "express";
 import {
   createVisitor,
   preRegisterVisitor,
+  searchPreRegisteredVisitor,
   getVisitors,
   getVisitorById,
   updateVisitorStatus,
   approveVisitor,
   rejectVisitor,
 } from "../controllers/visitorController.js";
-import { verifyToken, requireRole } from "../utils.js";
+import { verifyToken, optionalVerifyToken, requireRole } from "../utils.js";
 
 const router = express.Router();
 
@@ -18,6 +19,27 @@ router.post(
   verifyToken,
   requireRole("employee", "admin", "reception"),
   preRegisterVisitor
+);
+
+// Search Pre-Registered Visitor (Endpoint: GET /api/visitors/pre-register/search/:query)
+router.get(
+  "/pre-register/search/:query",
+  optionalVerifyToken,
+  searchPreRegisteredVisitor
+);
+
+// Handle empty query param (Validation Error 400)
+router.get(
+  "/pre-register/search",
+  optionalVerifyToken,
+  searchPreRegisteredVisitor
+);
+
+// Optional alias: GET /api/visitors/pre-register/:id
+router.get(
+  "/pre-register/:id",
+  optionalVerifyToken,
+  searchPreRegisteredVisitor
 );
 
 // Visitor Creation by Receptionist, Admin, or Employee

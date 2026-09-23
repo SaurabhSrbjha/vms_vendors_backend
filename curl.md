@@ -502,7 +502,71 @@ curl -X POST http://localhost:5000/api/visitors/pre-register \
 
 ---
 
-### 3.2 Receptionist Adds New Visitor (With Base64 Photo)
+### 3.2 Search Pre-Registered Visitor (By ID, PassCode, Visitor ID, Mobile, or Name)
+Allows Gate / Reception / Kiosk / Admin to look up a pre-registered visitor by query parameter (MongoDB ObjectId, numeric `id`, `visitor_id`, `pass_code`, `mobile`, or `full_name`).
+
+#### Endpoint:
+- `GET /api/visitors/pre-register/search/:query`
+- Alias: `GET /api/visitors/pre-register/:id`
+
+#### cURL (Search by Pass Code):
+```bash
+curl -X GET http://localhost:5000/api/visitors/pre-register/search/PR-3210
+```
+
+#### cURL (Search by Visitor ID):
+```bash
+curl -X GET http://localhost:5000/api/visitors/pre-register/search/VIS1002
+```
+
+#### cURL (Search by Mobile Number):
+```bash
+curl -X GET http://localhost:5000/api/visitors/pre-register/search/9876543210
+```
+
+#### Success Response (`200 OK`)
+```json
+{
+  "success": true,
+  "message": "Pre-registered visitor found successfully",
+  "data": {
+    "_id": "2",
+    "fullName": "Rahul Sharma",
+    "email": "rahul@example.com",
+    "mobile": "9876543210",
+    "officeName": "TCS",
+    "purpose": "Meeting",
+    "visitorType": "Pre-Registered",
+    "status": "Pre-Approved",
+    "passCode": "PR-3210",
+    "visitDate": "2026-09-23",
+    "visitTime": "10:30 AM",
+    "hostEmployeeName": "Amit Verma",
+    "hostDepartment": "IT",
+    "photo": null
+  }
+}
+```
+
+#### Error Response: Not Found (`404 Not Found`)
+```json
+{
+  "success": false,
+  "message": "No pre-registered visitor found with this ID or Code"
+}
+```
+
+#### Error Response: Missing Query (`400 Bad Request`)
+```json
+{
+  "success": false,
+  "message": "Search query parameter is required."
+}
+```
+
+---
+
+### 3.3 Receptionist Adds New Visitor (With Base64 Photo)
 Creates a new visitor entry in `PENDING` status and saves the uploaded Base64 photo to local server storage.
 
 ```bash
@@ -621,7 +685,107 @@ curl -X POST http://localhost:5000/api/visitors/reject \
 
 ---
 
-### 3.4 Admin / Reception / Employee List Visitors
+### 3.4 Update Visitor Status to CHECKED_IN (Via Status API)
+Visitor status can be updated to `CHECKED_IN` using the status API.
+- **Rule**: Allowed only if visitor status is `APPROVED` or visitor is `PRE_REGISTERED`.
+- Sets status to `CHECKED_IN` and automatically records `check_in_time`.
+
+```bash
+curl -X PATCH http://localhost:5000/api/visitors/VIS1001/status \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <JWT_TOKEN>" \
+  -d '{
+    "status": "CHECKED_IN"
+  }'
+```
+
+Or by passing `visitor_id` in body:
+```bash
+curl -X PATCH http://localhost:5000/api/visitors/status \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <JWT_TOKEN>" \
+  -d '{
+    "visitor_id": "VIS1001",
+    "status": "CHECKED_IN"
+  }'
+```
+
+#### Success Response (`200 OK`)
+```json
+{
+  "success": true,
+  "message": "Visitor 'VIS1001' checked in successfully.",
+  "data": {
+    "id": 1,
+    "visitor_id": "VIS1001",
+    "status": "CHECKED_IN",
+    "check_in_time": "2026-08-06T14:10:00.000Z",
+    "check_out_time": null
+  }
+}
+```
+
+#### Error Response if not approved / pre-registered (`400 Bad Request`)
+```json
+{
+  "success": false,
+  "message": "Cannot check in visitor 'VIS1001'. Visitor must be approved or pre-registered first. Current status: PENDING."
+}
+```
+
+---
+
+### 3.5 Update Visitor Status to CHECKED_OUT (Via Status API)
+Visitor status can be updated to `CHECKED_OUT` using the status API.
+- **Rule**: Allowed only if visitor current status is `CHECKED_IN`.
+- Sets status to `CHECKED_OUT` and automatically records `check_out_time`.
+
+```bash
+curl -X PATCH http://localhost:5000/api/visitors/VIS1001/status \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <JWT_TOKEN>" \
+  -d '{
+    "status": "CHECKED_OUT"
+  }'
+```
+
+Or by passing `visitor_id` in body:
+```bash
+curl -X PATCH http://localhost:5000/api/visitors/status \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <JWT_TOKEN>" \
+  -d '{
+    "visitor_id": "VIS1001",
+    "status": "CHECKED_OUT"
+  }'
+```
+
+#### Success Response (`200 OK`)
+```json
+{
+  "success": true,
+  "message": "Visitor 'VIS1001' checked out successfully.",
+  "data": {
+    "id": 1,
+    "visitor_id": "VIS1001",
+    "status": "CHECKED_OUT",
+    "check_in_time": "2026-08-06T14:10:00.000Z",
+    "check_out_time": "2026-08-06T16:45:00.000Z"
+  }
+}
+```
+
+#### Error Response if not checked in (`400 Bad Request`)
+```json
+{
+  "success": false,
+  "message": "Cannot check out visitor 'VIS1001'. Visitor must be checked in first. Current status: APPROVED."
+}
+```
+
+---
+
+### 3.6 Admin / Reception / Employee List Visitors
 - **Admin & Reception**: Retrieves all visitor records.
 - **Employee**: Retrieves only assigned visitors (`host_employee_id` = logged-in employee ID).
 

@@ -261,31 +261,75 @@ export const preRegisterVisitor = async (req, res) => {
       photoPath = saveBase64Image(photo, "visitors");
     }
 
+    const vVisitTime = String(req.body.visitTime || req.body.visit_time || req.body.time || "").trim();
+    let vPassCode = String(req.body.passCode || req.body.pass_code || "").trim();
+    if (!vPassCode) {
+      const numPart = visitorId.replace(/\D/g, "");
+      vPassCode = `PR-${numPart || Math.floor(1000 + Math.random() * 9000)}`;
+    }
+
     const insertQuery = `
       INSERT INTO visitors (
         visitor_id, photo, full_name, email, mobile, office_name,
         host_employee_id, host_employee_name, host_department,
-        purpose, visitor_type, visit_date, notes, status, receptionist_id, receptionist_name
+        purpose, visitor_type, visit_date, visit_time, pass_code, notes, status, receptionist_id, receptionist_name
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'APPROVED', NULL, NULL)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, 'APPROVED', NULL, NULL)
       RETURNING *;
     `;
 
-    const { rows } = await pool.query(insertQuery, [
-      visitorId,
-      photoPath,
-      vFullName,
-      vEmail,
-      vMobile,
-      vOfficeName,
-      finalHostEmpId,
-      finalHostName,
-      finalHostDept,
-      vPurpose,
-      vVisitorType,
-      vVisitDate,
-      vNotes,
-    ]);
+    let rows;
+    try {
+      const result = await pool.query(insertQuery, [
+        visitorId,
+        photoPath,
+        vFullName,
+        vEmail,
+        vMobile,
+        vOfficeName,
+        finalHostEmpId,
+        finalHostName,
+        finalHostDept,
+        vPurpose,
+        vVisitorType,
+        vVisitDate,
+        vVisitTime,
+        vPassCode,
+        vNotes,
+      ]);
+      rows = result.rows;
+    } catch (dbErr) {
+      if (
+        dbErr.message &&
+        (dbErr.message.includes("pass_code") || dbErr.message.includes("visit_time"))
+      ) {
+        await pool.query(`
+          ALTER TABLE visitors 
+          ADD COLUMN IF NOT EXISTS pass_code VARCHAR(50),
+          ADD COLUMN IF NOT EXISTS visit_time VARCHAR(50);
+        `);
+        const result = await pool.query(insertQuery, [
+          visitorId,
+          photoPath,
+          vFullName,
+          vEmail,
+          vMobile,
+          vOfficeName,
+          finalHostEmpId,
+          finalHostName,
+          finalHostDept,
+          vPurpose,
+          vVisitorType,
+          vVisitDate,
+          vVisitTime,
+          vPassCode,
+          vNotes,
+        ]);
+        rows = result.rows;
+      } else {
+        throw dbErr;
+      }
+    }
 
     const createdVisitor = rows[0];
 
@@ -299,6 +343,163 @@ export const preRegisterVisitor = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Internal server error while pre-registering visitor.",
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * Search Pre-Registered Visitor
+ * Endpoint: GET /api/visitors/pre-register/search/:query
+ * Optional alias: GET /api/visitors/pre-register/:id
+ * Searches pre-registered visitor by ObjectId/id, visitorId, passCode, mobile number, or fullName.
+ */
+export const searchPreRegisteredVisitor = async (req, res) => {
+  try {
+    const rawQuery = req.params?.query ?? req.params?.id ?? req.query?.query ?? req.query?.q ?? "";
+    const trimmedQuery = String(rawQuery).trim();
+
+    if (!trimmedQuery) {
+      return res.status(400).json({
+        success: false,
+        message: "Search query parameter is required.",
+      });
+    }
+
+    // Clean variants for matching
+    const cleanPhone = trimmedQuery.replace(/\D/g, "");
+    const codeNumber = trimmedQuery.replace(/^PR-?/i, "").trim();
+
+    // Query pre-registered visitor matching query
+    // Pre-registered condition: visitor_type matches /pre-register/i or status matches /pre-approved/i
+    const sql = `
+      SELECT * FROM visitors
+      WHERE (
+        -- 1. Numeric ID match
+        (CASE WHEN $1 ~ '^\\d{1,9}$' THEN id = $1::integer ELSE false END)
+        -- 2. visitor_id match (exact or case-insensitive)
+        OR UPPER(visitor_id) = UPPER($1)
+        OR visitor_id ILIKE $1
+        -- 3. pass_code match (exact or case-insensitive)
+        OR (pass_code IS NOT NULL AND (UPPER(pass_code) = UPPER($1) OR pass_code ILIKE $1))
+        -- 4. mobile match
+        OR mobile ILIKE '%' || $1 || '%'
+        OR (CASE WHEN $2 != '' AND LENGTH($2) >= 4 THEN REPLACE(REPLACE(REPLACE(mobile, '+', ''), '-', ''), ' ', '') ILIKE '%' || $2 || '%' ELSE false END)
+        -- 5. full_name match
+        OR full_name ILIKE '%' || $1 || '%'
+        -- 6. Pass code number or VIS number match
+        OR (CASE WHEN $3 != '' THEN (
+              (pass_code IS NOT NULL AND pass_code ILIKE '%' || $3 || '%')
+              OR visitor_id ILIKE '%' || $3 || '%'
+              OR (CASE WHEN $3 ~ '^\\d{1,9}$' THEN id = $3::integer ELSE false END)
+           ) ELSE false END)
+      )
+      AND (
+        visitor_type ILIKE '%pre%register%'
+        OR visitor_type ILIKE '%preregister%'
+        OR status ILIKE '%pre%approved%'
+        OR status ILIKE '%pre_approved%'
+        OR (visitor_type IS NOT NULL AND visitor_type ILIKE '%pre%')
+      )
+      ORDER BY 
+        CASE 
+          WHEN UPPER(status) IN ('APPROVED', 'PENDING', 'PRE-APPROVED', 'PRE_APPROVED') THEN 1 
+          WHEN UPPER(status) = 'CHECKED_IN' THEN 2 
+          ELSE 3 
+        END, 
+        id DESC
+      LIMIT 1;
+    `;
+
+    let rows;
+    try {
+      const result = await pool.query(sql, [trimmedQuery, cleanPhone, codeNumber]);
+      rows = result.rows;
+    } catch (dbErr) {
+      if (
+        dbErr.message &&
+        (dbErr.message.includes("pass_code") || dbErr.message.includes("visit_time"))
+      ) {
+        await pool.query(`
+          ALTER TABLE visitors 
+          ADD COLUMN IF NOT EXISTS pass_code VARCHAR(50),
+          ADD COLUMN IF NOT EXISTS visit_time VARCHAR(50);
+        `);
+        const retryResult = await pool.query(sql, [trimmedQuery, cleanPhone, codeNumber]);
+        rows = retryResult.rows;
+      } else {
+        throw dbErr;
+      }
+    }
+
+    if (!rows || rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "No pre-registered visitor found with this ID or Code",
+      });
+    }
+
+    const visitor = rows[0];
+
+    const passCode =
+      visitor.pass_code ||
+      (visitor.visitor_id
+        ? `PR-${visitor.visitor_id.replace(/\D/g, "") || visitor.id}`
+        : `PR-${visitor.id}`);
+
+    const formattedData = {
+      _id: String(visitor.id),
+      id: visitor.id,
+      visitorId: visitor.visitor_id,
+      visitor_id: visitor.visitor_id,
+      fullName: visitor.full_name,
+      full_name: visitor.full_name,
+      email: visitor.email,
+      mobile: visitor.mobile,
+      officeName: visitor.office_name,
+      office_name: visitor.office_name,
+      purpose: visitor.purpose,
+      visitorType: visitor.visitor_type,
+      visitor_type: visitor.visitor_type,
+      status: visitor.status,
+      passCode: passCode,
+      pass_code: passCode,
+      visitDate: visitor.visit_date,
+      visit_date: visitor.visit_date,
+      visitTime: visitor.visit_time || null,
+      visit_time: visitor.visit_time || null,
+      hostEmployeeId: visitor.host_employee_id,
+      host_employee_id: visitor.host_employee_id,
+      hostEmployeeName: visitor.host_employee_name,
+      host_employee_name: visitor.host_employee_name,
+      hostDepartment: visitor.host_department,
+      host_department: visitor.host_department,
+      photo: visitor.photo || null,
+      notes: visitor.notes || null,
+      receptionistId: visitor.receptionist_id || null,
+      receptionist_id: visitor.receptionist_id || null,
+      receptionistName: visitor.receptionist_name || null,
+      receptionist_name: visitor.receptionist_name || null,
+      checkInTime: visitor.check_in_time || null,
+      check_in_time: visitor.check_in_time || null,
+      checkOutTime: visitor.check_out_time || null,
+      check_out_time: visitor.check_out_time || null,
+      createdAt: visitor.created_at,
+      created_at: visitor.created_at,
+      updatedAt: visitor.updated_at,
+      updated_at: visitor.updated_at,
+    };
+
+    return res.status(200).json({
+      success: true,
+      message: "Pre-registered visitor found successfully",
+      data: formattedData,
+    });
+  } catch (error) {
+    console.error("❌ Error searching pre-registered visitor:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error while searching pre-registered visitor.",
       error: error.message,
     });
   }
@@ -326,7 +527,7 @@ export const updateVisitorStatus = async (req, res) => {
     if (!status || !["APPROVED", "REJECTED", "PENDING", "CHECKED_IN", "CHECKED_OUT"].includes(status.toUpperCase())) {
       return res.status(400).json({
         success: false,
-        message: "Valid status ('APPROVED' or 'REJECTED') is required.",
+        message: "Valid status ('APPROVED', 'REJECTED', 'CHECKED_IN', or 'CHECKED_OUT') is required.",
       });
     }
 
@@ -370,16 +571,100 @@ export const updateVisitorStatus = async (req, res) => {
       }
     }
 
+    // Condition 1: CHECKED_IN tabhi hoga jab visitor APPROVED ho ya PRE_REGISTERED ho
+    if (newStatus === "CHECKED_IN") {
+      if (visitor.status === "CHECKED_IN") {
+        return res.status(400).json({
+          success: false,
+          message: `Visitor '${visitor.visitor_id}' is already checked in.`,
+        });
+      }
+      if (visitor.status === "CHECKED_OUT") {
+        return res.status(400).json({
+          success: false,
+          message: `Visitor '${visitor.visitor_id}' has already checked out. Cannot check in again.`,
+        });
+      }
+      if (visitor.status === "REJECTED") {
+        return res.status(400).json({
+          success: false,
+          message: `Cannot check in visitor '${visitor.visitor_id}'. Visitor request was rejected.`,
+        });
+      }
+
+      const isApproved = String(visitor.status || "").toUpperCase() === "APPROVED";
+      const isPreRegistered =
+        String(visitor.visitor_type || "").toUpperCase() === "PRE_REGISTERED";
+
+      if (!isApproved && !isPreRegistered) {
+        return res.status(400).json({
+          success: false,
+          message: `Cannot check in visitor '${visitor.visitor_id}'. Visitor must be approved or pre-registered first. Current status: ${visitor.status}.`,
+        });
+      }
+    }
+
+    // Condition 2: CHECKED_OUT tabhi hoga jab visitor pehle se CHECKED_IN ho
+    if (newStatus === "CHECKED_OUT") {
+      if (visitor.status === "CHECKED_OUT") {
+        return res.status(400).json({
+          success: false,
+          message: `Visitor '${visitor.visitor_id}' is already checked out.`,
+        });
+      }
+      if (String(visitor.status || "").toUpperCase() !== "CHECKED_IN") {
+        return res.status(400).json({
+          success: false,
+          message: `Cannot check out visitor '${visitor.visitor_id}'. Visitor must be checked in first. Current status: ${visitor.status}.`,
+        });
+      }
+    }
+
+    // Condition 3: Agar visitor already checked in ya checked out hai, toh status APPROVED ya REJECTED nahi kar sakte
+    if ((newStatus === "APPROVED" || newStatus === "REJECTED") && (visitor.status === "CHECKED_IN" || visitor.status === "CHECKED_OUT")) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot change status to ${newStatus} because visitor '${visitor.visitor_id}' is already ${visitor.status.toLowerCase()}.`,
+      });
+    }
+
     const updatedNotes = notes || rejection_reason ? `${visitor.notes || ""}\n${notes || rejection_reason || ""}`.trim() : visitor.notes;
+
+    let checkInTimestampClause = "";
+    let checkOutTimestampClause = "";
+
+    if (newStatus === "CHECKED_IN") {
+      checkInTimestampClause = ", check_in_time = CURRENT_TIMESTAMP";
+    } else if (newStatus === "CHECKED_OUT") {
+      checkOutTimestampClause = ", check_out_time = CURRENT_TIMESTAMP";
+    }
 
     const updateQuery = `
       UPDATE visitors
-      SET status = $1, notes = $2, updated_at = CURRENT_TIMESTAMP
+      SET status = $1, notes = $2, updated_at = CURRENT_TIMESTAMP${checkInTimestampClause}${checkOutTimestampClause}
       WHERE id = $3
       RETURNING *;
     `;
 
-    const result = await pool.query(updateQuery, [newStatus, updatedNotes, visitor.id]);
+    let result;
+    try {
+      result = await pool.query(updateQuery, [newStatus, updatedNotes, visitor.id]);
+    } catch (dbErr) {
+      if (
+        (dbErr.message && dbErr.message.includes("check_in_time")) ||
+        (dbErr.message && dbErr.message.includes("check_out_time"))
+      ) {
+        await pool.query(`
+          ALTER TABLE visitors 
+          ADD COLUMN IF NOT EXISTS check_in_time TIMESTAMP,
+          ADD COLUMN IF NOT EXISTS check_out_time TIMESTAMP;
+        `);
+        result = await pool.query(updateQuery, [newStatus, updatedNotes, visitor.id]);
+      } else {
+        throw dbErr;
+      }
+    }
+
     const updatedVisitor = result.rows[0];
 
     // Trigger FCM Notification on status update (Non-blocking background process)
@@ -399,9 +684,16 @@ export const updateVisitorStatus = async (req, res) => {
       }
     })();
 
+    let successMessage = `Visitor request for '${visitor.visitor_id}' has been ${newStatus.toLowerCase()} successfully.`;
+    if (newStatus === "CHECKED_IN") {
+      successMessage = `Visitor '${visitor.visitor_id}' checked in successfully.`;
+    } else if (newStatus === "CHECKED_OUT") {
+      successMessage = `Visitor '${visitor.visitor_id}' checked out successfully.`;
+    }
+
     return res.status(200).json({
       success: true,
-      message: `Visitor request for '${visitor.visitor_id}' has been ${newStatus.toLowerCase()} successfully.`,
+      message: successMessage,
       data: updatedVisitor,
     });
   } catch (error) {

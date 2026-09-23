@@ -21,11 +21,14 @@ Refer to [curl.md](file:///Users/apple/Documents/vmsBackends/vms_vendors_backend
 
 ### 3. Visitor Management Module
 - `POST /api/visitors/pre-register` - Employee pre-registers a visitor for themselves (Status is auto-set to `APPROVED`).
+- `GET /api/visitors/pre-register/search/:query` - Search pre-registered visitor by ID, `passCode`, `visitorId`, `mobile`, or `fullName` (Alias: `GET /api/visitors/pre-register/:id`).
 - `POST /api/visitors` - Receptionist / Admin adds visitor record (accepts Base64 photo, defaults status to `PENDING`).
 - `GET /api/visitors` - View visitors list (Admin & Reception view all, Employee views assigned visitors).
 - `GET /api/visitors/:id` - Get single visitor details by numeric ID or `visitor_id`.
-- `PATCH /api/visitors/:id/status` - Employee / Admin updates visitor status (`APPROVED` / `REJECTED`).
-- `POST /api/visitors/:id/approve` - Host Employee / Admin approves visitor request.
-- `POST /api/visitors/:id/reject` - Host Employee / Admin rejects visitor request.
+- `PATCH /api/visitors/:id/status` (or `PATCH /api/visitors/status`) - Update visitor status (`APPROVED`, `REJECTED`, `CHECKED_IN`, `CHECKED_OUT`).
+  - **Check-in condition**: Allowed only if current status is `APPROVED` or visitor is `PRE_REGISTERED` (automatically sets `check_in_time`).
+  - **Check-out condition**: Allowed only if current status is `CHECKED_IN` (automatically sets `check_out_time`).
+- `POST /api/visitors/:id/approve` - Host Employee / Admin / Reception approves visitor request.
+- `POST /api/visitors/:id/reject` - Host Employee / Admin / Reception rejects visitor request.
 
 
