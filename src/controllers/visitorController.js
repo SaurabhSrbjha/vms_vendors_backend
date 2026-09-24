@@ -524,10 +524,10 @@ export const updateVisitorStatus = async (req, res) => {
       });
     }
 
-    if (!status || !["APPROVED", "REJECTED", "PENDING", "CHECKED_IN", "CHECKED_OUT"].includes(status.toUpperCase())) {
+    if (!status || !["APPROVED", "REJECTED", "PENDING"].includes(status.toUpperCase())) {
       return res.status(400).json({
         success: false,
-        message: "Valid status ('APPROVED', 'REJECTED', 'CHECKED_IN', or 'CHECKED_OUT') is required.",
+        message: "Valid status ('APPROVED' or 'REJECTED') is required.",
       });
     }
 
@@ -571,100 +571,16 @@ export const updateVisitorStatus = async (req, res) => {
       }
     }
 
-    // Condition 1: CHECKED_IN tabhi hoga jab visitor APPROVED ho ya PRE_REGISTERED ho
-    if (newStatus === "CHECKED_IN") {
-      if (visitor.status === "CHECKED_IN") {
-        return res.status(400).json({
-          success: false,
-          message: `Visitor '${visitor.visitor_id}' is already checked in.`,
-        });
-      }
-      if (visitor.status === "CHECKED_OUT") {
-        return res.status(400).json({
-          success: false,
-          message: `Visitor '${visitor.visitor_id}' has already checked out. Cannot check in again.`,
-        });
-      }
-      if (visitor.status === "REJECTED") {
-        return res.status(400).json({
-          success: false,
-          message: `Cannot check in visitor '${visitor.visitor_id}'. Visitor request was rejected.`,
-        });
-      }
-
-      const isApproved = String(visitor.status || "").toUpperCase() === "APPROVED";
-      const isPreRegistered =
-        String(visitor.visitor_type || "").toUpperCase() === "PRE_REGISTERED";
-
-      if (!isApproved && !isPreRegistered) {
-        return res.status(400).json({
-          success: false,
-          message: `Cannot check in visitor '${visitor.visitor_id}'. Visitor must be approved or pre-registered first. Current status: ${visitor.status}.`,
-        });
-      }
-    }
-
-    // Condition 2: CHECKED_OUT tabhi hoga jab visitor pehle se CHECKED_IN ho
-    if (newStatus === "CHECKED_OUT") {
-      if (visitor.status === "CHECKED_OUT") {
-        return res.status(400).json({
-          success: false,
-          message: `Visitor '${visitor.visitor_id}' is already checked out.`,
-        });
-      }
-      if (String(visitor.status || "").toUpperCase() !== "CHECKED_IN") {
-        return res.status(400).json({
-          success: false,
-          message: `Cannot check out visitor '${visitor.visitor_id}'. Visitor must be checked in first. Current status: ${visitor.status}.`,
-        });
-      }
-    }
-
-    // Condition 3: Agar visitor already checked in ya checked out hai, toh status APPROVED ya REJECTED nahi kar sakte
-    if ((newStatus === "APPROVED" || newStatus === "REJECTED") && (visitor.status === "CHECKED_IN" || visitor.status === "CHECKED_OUT")) {
-      return res.status(400).json({
-        success: false,
-        message: `Cannot change status to ${newStatus} because visitor '${visitor.visitor_id}' is already ${visitor.status.toLowerCase()}.`,
-      });
-    }
-
     const updatedNotes = notes || rejection_reason ? `${visitor.notes || ""}\n${notes || rejection_reason || ""}`.trim() : visitor.notes;
-
-    let checkInTimestampClause = "";
-    let checkOutTimestampClause = "";
-
-    if (newStatus === "CHECKED_IN") {
-      checkInTimestampClause = ", check_in_time = CURRENT_TIMESTAMP";
-    } else if (newStatus === "CHECKED_OUT") {
-      checkOutTimestampClause = ", check_out_time = CURRENT_TIMESTAMP";
-    }
 
     const updateQuery = `
       UPDATE visitors
-      SET status = $1, notes = $2, updated_at = CURRENT_TIMESTAMP${checkInTimestampClause}${checkOutTimestampClause}
+      SET status = $1, notes = $2, updated_at = CURRENT_TIMESTAMP
       WHERE id = $3
       RETURNING *;
     `;
 
-    let result;
-    try {
-      result = await pool.query(updateQuery, [newStatus, updatedNotes, visitor.id]);
-    } catch (dbErr) {
-      if (
-        (dbErr.message && dbErr.message.includes("check_in_time")) ||
-        (dbErr.message && dbErr.message.includes("check_out_time"))
-      ) {
-        await pool.query(`
-          ALTER TABLE visitors 
-          ADD COLUMN IF NOT EXISTS check_in_time TIMESTAMP,
-          ADD COLUMN IF NOT EXISTS check_out_time TIMESTAMP;
-        `);
-        result = await pool.query(updateQuery, [newStatus, updatedNotes, visitor.id]);
-      } else {
-        throw dbErr;
-      }
-    }
-
+    const result = await pool.query(updateQuery, [newStatus, updatedNotes, visitor.id]);
     const updatedVisitor = result.rows[0];
 
     // Trigger FCM Notification on status update (Non-blocking background process)
@@ -684,16 +600,9 @@ export const updateVisitorStatus = async (req, res) => {
       }
     })();
 
-    let successMessage = `Visitor request for '${visitor.visitor_id}' has been ${newStatus.toLowerCase()} successfully.`;
-    if (newStatus === "CHECKED_IN") {
-      successMessage = `Visitor '${visitor.visitor_id}' checked in successfully.`;
-    } else if (newStatus === "CHECKED_OUT") {
-      successMessage = `Visitor '${visitor.visitor_id}' checked out successfully.`;
-    }
-
     return res.status(200).json({
       success: true,
-      message: successMessage,
+      message: `Visitor request for '${visitor.visitor_id}' has been ${newStatus.toLowerCase()} successfully.`,
       data: updatedVisitor,
     });
   } catch (error) {
@@ -722,6 +631,253 @@ export const rejectVisitor = async (req, res) => {
   req.body = req.body || {};
   req.body.status = "REJECTED";
   return updateVisitorStatus(req, res);
+};
+
+/**
+ * Check-In Visitor Endpoint
+ * Route: POST /api/visitors/:id/check-in (or POST /api/visitors/check-in)
+ * Rule: Allowed ONLY if visitor status is APPROVED or visitor is PRE_REGISTERED.
+ */
+export const checkInVisitor = async (req, res) => {
+  try {
+    const targetId =
+      req.params?.id ||
+      req.params?.visitorId ||
+      req.body?.visitor_id ||
+      req.body?.visitorId ||
+      req.body?.id;
+
+    if (!targetId) {
+      return res.status(400).json({
+        success: false,
+        message: "visitor_id or id is required for check-in.",
+      });
+    }
+
+    const isNumeric = /^\d+$/.test(targetId);
+    const findQuery = isNumeric
+      ? "SELECT * FROM visitors WHERE visitor_id = $1 OR id = $2"
+      : "SELECT * FROM visitors WHERE visitor_id = $1";
+    const findParams = isNumeric ? [targetId, parseInt(targetId, 10)] : [targetId];
+
+    const { rows } = await pool.query(findQuery, findParams);
+    if (rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: `Visitor not found with visitor_id/ID '${targetId}'.`,
+      });
+    }
+
+    const visitor = rows[0];
+
+    // Check if already checked in
+    if (visitor.status === "CHECKED_IN") {
+      return res.status(400).json({
+        success: false,
+        message: `Visitor '${visitor.visitor_id}' is already checked in.`,
+      });
+    }
+
+    // Check if already checked out
+    if (visitor.status === "CHECKED_OUT") {
+      return res.status(400).json({
+        success: false,
+        message: `Visitor '${visitor.visitor_id}' has already checked out. Cannot check in again.`,
+      });
+    }
+
+    // Check if rejected
+    if (visitor.status === "REJECTED") {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot check in visitor '${visitor.visitor_id}'. Visitor request was rejected.`,
+      });
+    }
+
+    // Condition: Must be APPROVED or PRE_REGISTERED
+    const isApproved = String(visitor.status || "").toUpperCase() === "APPROVED";
+    const isPreRegistered =
+      String(visitor.visitor_type || "").toUpperCase() === "PRE_REGISTERED" ||
+      String(visitor.status || "").toUpperCase().includes("PRE_APPROVED");
+
+    if (!isApproved && !isPreRegistered) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot check in visitor '${visitor.visitor_id}'. Visitor must be approved or pre-registered first. Current status: ${visitor.status}.`,
+      });
+    }
+
+    const notes = req.body?.notes;
+    const updatedNotes = notes ? `${visitor.notes || ""}\n${notes}`.trim() : visitor.notes;
+
+    const updateQuery = `
+      UPDATE visitors
+      SET status = 'CHECKED_IN', notes = $1, check_in_time = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+      WHERE id = $2
+      RETURNING *;
+    `;
+
+    let result;
+    try {
+      result = await pool.query(updateQuery, [updatedNotes, visitor.id]);
+    } catch (dbErr) {
+      if (dbErr.message && dbErr.message.includes("check_in_time")) {
+        await pool.query(`
+          ALTER TABLE visitors 
+          ADD COLUMN IF NOT EXISTS check_in_time TIMESTAMP,
+          ADD COLUMN IF NOT EXISTS check_out_time TIMESTAMP;
+        `);
+        result = await pool.query(updateQuery, [updatedNotes, visitor.id]);
+      } else {
+        throw dbErr;
+      }
+    }
+
+    const updatedVisitor = result.rows[0];
+
+    // Trigger FCM Notification (Non-blocking background process)
+    (async () => {
+      try {
+        if (visitor.receptionist_id) {
+          const recepRes = await pool.query(
+            "SELECT fcm_token FROM users WHERE (employee_id = $1 OR username = $1) AND fcm_token IS NOT NULL AND TRIM(fcm_token) != ''",
+            [visitor.receptionist_id]
+          );
+          if (recepRes.rows.length > 0 && recepRes.rows[0].fcm_token) {
+            await sendVisitorStatusNotification(recepRes.rows[0].fcm_token, updatedVisitor, "CHECKED_IN");
+          }
+        }
+      } catch (fcmErr) {
+        console.error("⚠️ Background FCM check-in notification error:", fcmErr.message);
+      }
+    })();
+
+    return res.status(200).json({
+      success: true,
+      message: `Visitor '${visitor.visitor_id}' checked in successfully.`,
+      data: updatedVisitor,
+    });
+  } catch (error) {
+    console.error("❌ Error checking in visitor:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error while checking in visitor.",
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * Check-Out Visitor Endpoint
+ * Route: POST /api/visitors/:id/check-out (or POST /api/visitors/check-out)
+ * Rule: Allowed ONLY if visitor status is CHECKED_IN.
+ */
+export const checkOutVisitor = async (req, res) => {
+  try {
+    const targetId =
+      req.params?.id ||
+      req.params?.visitorId ||
+      req.body?.visitor_id ||
+      req.body?.visitorId ||
+      req.body?.id;
+
+    if (!targetId) {
+      return res.status(400).json({
+        success: false,
+        message: "visitor_id or id is required for check-out.",
+      });
+    }
+
+    const isNumeric = /^\d+$/.test(targetId);
+    const findQuery = isNumeric
+      ? "SELECT * FROM visitors WHERE visitor_id = $1 OR id = $2"
+      : "SELECT * FROM visitors WHERE visitor_id = $1";
+    const findParams = isNumeric ? [targetId, parseInt(targetId, 10)] : [targetId];
+
+    const { rows } = await pool.query(findQuery, findParams);
+    if (rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: `Visitor not found with visitor_id/ID '${targetId}'.`,
+      });
+    }
+
+    const visitor = rows[0];
+
+    // Check if already checked out
+    if (visitor.status === "CHECKED_OUT") {
+      return res.status(400).json({
+        success: false,
+        message: `Visitor '${visitor.visitor_id}' is already checked out.`,
+      });
+    }
+
+    // Condition: Must currently be CHECKED_IN
+    if (String(visitor.status || "").toUpperCase() !== "CHECKED_IN") {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot check out visitor '${visitor.visitor_id}'. Visitor must be checked in first. Current status: ${visitor.status}.`,
+      });
+    }
+
+    const notes = req.body?.notes;
+    const updatedNotes = notes ? `${visitor.notes || ""}\n${notes}`.trim() : visitor.notes;
+
+    const updateQuery = `
+      UPDATE visitors
+      SET status = 'CHECKED_OUT', notes = $1, check_out_time = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+      WHERE id = $2
+      RETURNING *;
+    `;
+
+    let result;
+    try {
+      result = await pool.query(updateQuery, [updatedNotes, visitor.id]);
+    } catch (dbErr) {
+      if (dbErr.message && dbErr.message.includes("check_out_time")) {
+        await pool.query(`
+          ALTER TABLE visitors 
+          ADD COLUMN IF NOT EXISTS check_in_time TIMESTAMP,
+          ADD COLUMN IF NOT EXISTS check_out_time TIMESTAMP;
+        `);
+        result = await pool.query(updateQuery, [updatedNotes, visitor.id]);
+      } else {
+        throw dbErr;
+      }
+    }
+
+    const updatedVisitor = result.rows[0];
+
+    // Trigger FCM Notification (Non-blocking background process)
+    (async () => {
+      try {
+        if (visitor.receptionist_id) {
+          const recepRes = await pool.query(
+            "SELECT fcm_token FROM users WHERE (employee_id = $1 OR username = $1) AND fcm_token IS NOT NULL AND TRIM(fcm_token) != ''",
+            [visitor.receptionist_id]
+          );
+          if (recepRes.rows.length > 0 && recepRes.rows[0].fcm_token) {
+            await sendVisitorStatusNotification(recepRes.rows[0].fcm_token, updatedVisitor, "CHECKED_OUT");
+          }
+        }
+      } catch (fcmErr) {
+        console.error("⚠️ Background FCM check-out notification error:", fcmErr.message);
+      }
+    })();
+
+    return res.status(200).json({
+      success: true,
+      message: `Visitor '${visitor.visitor_id}' checked out successfully.`,
+      data: updatedVisitor,
+    });
+  } catch (error) {
+    console.error("❌ Error checking out visitor:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error while checking out visitor.",
+      error: error.message,
+    });
+  }
 };
 
 /**

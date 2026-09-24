@@ -685,28 +685,24 @@ curl -X POST http://localhost:5000/api/visitors/reject \
 
 ---
 
-### 3.4 Update Visitor Status to CHECKED_IN (Via Status API)
-Visitor status can be updated to `CHECKED_IN` using the status API.
-- **Rule**: Allowed only if visitor status is `APPROVED` or visitor is `PRE_REGISTERED`.
+### 3.4 Visitor Check-In
+Endpoint: `POST /api/visitors/:id/check-in` (or `POST /api/visitors/check-in`)
+- **Rule**: Allowed ONLY if visitor status is `APPROVED` or visitor is `PRE_REGISTERED`.
 - Sets status to `CHECKED_IN` and automatically records `check_in_time`.
 
+#### Option A: ID in URL Path
 ```bash
-curl -X PATCH http://localhost:5000/api/visitors/VIS1001/status \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer <JWT_TOKEN>" \
-  -d '{
-    "status": "CHECKED_IN"
-  }'
+curl -X POST http://localhost:5000/api/visitors/VIS1001/check-in \
+  -H "Authorization: Bearer <JWT_TOKEN>"
 ```
 
-Or by passing `visitor_id` in body:
+#### Option B: `visitor_id` in JSON Body
 ```bash
-curl -X PATCH http://localhost:5000/api/visitors/status \
+curl -X POST http://localhost:5000/api/visitors/check-in \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer <JWT_TOKEN>" \
   -d '{
-    "visitor_id": "VIS1001",
-    "status": "CHECKED_IN"
+    "visitor_id": "VIS1001"
   }'
 ```
 
@@ -735,28 +731,24 @@ curl -X PATCH http://localhost:5000/api/visitors/status \
 
 ---
 
-### 3.5 Update Visitor Status to CHECKED_OUT (Via Status API)
-Visitor status can be updated to `CHECKED_OUT` using the status API.
-- **Rule**: Allowed only if visitor current status is `CHECKED_IN`.
+### 3.5 Visitor Check-Out
+Endpoint: `POST /api/visitors/:id/check-out` (or `POST /api/visitors/check-out`)
+- **Rule**: Allowed ONLY if visitor current status is `CHECKED_IN`.
 - Sets status to `CHECKED_OUT` and automatically records `check_out_time`.
 
+#### Option A: ID in URL Path
 ```bash
-curl -X PATCH http://localhost:5000/api/visitors/VIS1001/status \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer <JWT_TOKEN>" \
-  -d '{
-    "status": "CHECKED_OUT"
-  }'
+curl -X POST http://localhost:5000/api/visitors/VIS1001/check-out \
+  -H "Authorization: Bearer <JWT_TOKEN>"
 ```
 
-Or by passing `visitor_id` in body:
+#### Option B: `visitor_id` in JSON Body
 ```bash
-curl -X PATCH http://localhost:5000/api/visitors/status \
+curl -X POST http://localhost:5000/api/visitors/check-out \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer <JWT_TOKEN>" \
   -d '{
-    "visitor_id": "VIS1001",
-    "status": "CHECKED_OUT"
+    "visitor_id": "VIS1001"
   }'
 ```
 

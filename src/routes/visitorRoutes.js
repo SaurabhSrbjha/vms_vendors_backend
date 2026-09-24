@@ -8,6 +8,8 @@ import {
   updateVisitorStatus,
   approveVisitor,
   rejectVisitor,
+  checkInVisitor,
+  checkOutVisitor,
 } from "../controllers/visitorController.js";
 import { verifyToken, optionalVerifyToken, requireRole } from "../utils.js";
 
@@ -40,6 +42,36 @@ router.get(
   "/pre-register/:id",
   optionalVerifyToken,
   searchPreRegisteredVisitor
+);
+
+// Visitor Check-In
+router.post(
+  "/:id/check-in",
+  verifyToken,
+  requireRole("reception", "admin", "employee"),
+  checkInVisitor
+);
+
+router.post(
+  "/check-in",
+  verifyToken,
+  requireRole("reception", "admin", "employee"),
+  checkInVisitor
+);
+
+// Visitor Check-Out
+router.post(
+  "/:id/check-out",
+  verifyToken,
+  requireRole("reception", "admin", "employee"),
+  checkOutVisitor
+);
+
+router.post(
+  "/check-out",
+  verifyToken,
+  requireRole("reception", "admin", "employee"),
+  checkOutVisitor
 );
 
 // Visitor Creation by Receptionist, Admin, or Employee
