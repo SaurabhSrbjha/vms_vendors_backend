@@ -9,7 +9,7 @@ export const EmployeeModel = {
     full_name: "VARCHAR(150) NOT NULL",
     dob: "VARCHAR(50) NOT NULL",
     mobile: "VARCHAR(50) NOT NULL",
-    email: "VARCHAR(150) NOT NULL",
+    email: "VARCHAR(150)",
     department: "VARCHAR(100) NOT NULL",
     designation: "VARCHAR(100) NOT NULL",
     role: "VARCHAR(50) NOT NULL",
@@ -18,9 +18,17 @@ export const EmployeeModel = {
     updated_at: "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
   },
 
-  sync: async () =>
+  sync: async () => {
     await baseTableModel(
       EmployeeModel.tableName,
       EmployeeModel.columns
-    ),
+    );
+    try {
+      const pool = (await import("../config/db.js")).default;
+      await pool.query("ALTER TABLE employees ALTER COLUMN email DROP NOT NULL");
+    } catch (e) {
+      // Ignore if already nullable
+    }
+  },
 };
+

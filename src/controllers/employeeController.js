@@ -108,14 +108,15 @@ export const createEmployee = async (req, res) => {
       status = "active",
     } = req.body;
 
-    if (!full_name || !dob || !mobile || !email || !department || !designation || !role) {
+    if (!full_name || !dob || !mobile || !department || !designation || !role) {
       return res.status(400).json({
         success: false,
-        message: "Full Name, Date of Birth, Mobile, Email, Department, Designation, and Role are required.",
+        message: "Full Name, Date of Birth, Mobile, Department, Designation, and Role are required.",
       });
     }
 
     const formattedRole = role.toLowerCase();
+
     if (!["employee", "reception"].includes(formattedRole)) {
       return res.status(400).json({
         success: false,
@@ -470,19 +471,19 @@ export const bulkUploadEmployees = async (req, res) => {
       const full_name = emp.full_name?.trim();
       const dob = emp.dob?.trim();
       const mobile = emp.mobile?.trim();
-      const email = emp.email?.trim()?.toLowerCase();
+      const email = emp.email?.trim() ? emp.email.trim().toLowerCase() : null;
       const department = emp.department?.trim();
       const designation = emp.designation?.trim();
       const role = (emp.role?.trim()?.toLowerCase() === "reception") ? "reception" : "employee";
       const status = (emp.status?.trim()?.toLowerCase() === "inactive") ? "inactive" : "active";
       let employee_id = emp.employee_id?.trim();
 
-      // Validate required fields
-      if (!full_name || !dob || !mobile || !email || !department || !designation) {
+      // Validate required fields (Email is optional)
+      if (!full_name || !dob || !mobile || !department || !designation) {
         failedRecords.push({
           row: rowIndex,
           data: emp,
-          reason: "Missing required fields (full_name, dob, mobile, email, department, designation are required).",
+          reason: "Missing required fields (full_name, dob, mobile, department, designation are required).",
         });
         continue;
       }
@@ -521,20 +522,23 @@ export const bulkUploadEmployees = async (req, res) => {
           continue;
         }
 
-        // Check if email already exists
-        const checkEmail = await client.query(
-          "SELECT id FROM employees WHERE LOWER(email) = $1",
-          [email]
-        );
-        if (checkEmail.rows.length > 0) {
-          await client.query("ROLLBACK");
-          failedRecords.push({
-            row: rowIndex,
-            data: emp,
-            reason: `Employee with email '${email}' already exists.`,
-          });
-          continue;
+        // Check if email already exists (only if email is provided)
+        if (email) {
+          const checkEmail = await client.query(
+            "SELECT id FROM employees WHERE LOWER(email) = $1",
+            [email]
+          );
+          if (checkEmail.rows.length > 0) {
+            await client.query("ROLLBACK");
+            failedRecords.push({
+              row: rowIndex,
+              data: emp,
+              reason: `Employee with email '${email}' already exists.`,
+            });
+            continue;
+          }
         }
+
 
         // Generate Username & Password
         const username = generateEmployeeUsername(employee_id, mobile);
