@@ -2,3 +2,7 @@
 node_modules/
 
 /package-lock.json
+
+# Firebase Service Account
+*firebase-service-account*.json
+src/config/firebase-service-account.json

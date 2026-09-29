@@ -6,6 +6,7 @@ import {
   updateEmployee,
   toggleEmployeeStatus,
   deleteEmployee,
+  bulkUploadEmployees,
 } from "../controllers/employeeController.js";
 import { verifyToken, requireRole } from "../utils.js";
 
@@ -16,10 +17,12 @@ router.get("/", verifyToken, requireRole("admin", "reception", "employee"), getE
 router.get("/:id", verifyToken, requireRole("admin", "reception", "employee"), getEmployeeById);
 
 // Admin-only management endpoints
+router.post("/bulk-upload", verifyToken, requireRole("admin"), bulkUploadEmployees);
 router.post("/", verifyToken, requireRole("admin"), createEmployee);
 router.put("/:id", verifyToken, requireRole("admin"), updateEmployee);
 router.patch("/:id/status", verifyToken, requireRole("admin"), toggleEmployeeStatus);
 router.delete("/:id", verifyToken, requireRole("admin"), deleteEmployee);
 
 export default router;
+
 

@@ -436,3 +436,200 @@ export const deleteEmployee = async (req, res) => {
   }
 };
 
+/**
+ * POST /api/employees/bulk-upload
+ * Bulk Import Employees (Admin only)
+ * Accepts JSON array of employee objects, creates employee records and associated user credentials.
+ */
+export const bulkUploadEmployees = async (req, res) => {
+  const { employees } = req.body;
+
+  if (!Array.isArray(employees) || employees.length === 0) {
+    return res.status(400).json({
+      success: false,
+      message: "Please provide an array of employee records to upload.",
+    });
+  }
+
+  if (employees.length > 500) {
+    return res.status(400).json({
+      success: false,
+      message: "Maximum 500 records allowed per batch upload.",
+    });
+  }
+
+  const client = await pool.connect();
+  const successfulRecords = [];
+  const failedRecords = [];
+
+  try {
+    for (let i = 0; i < employees.length; i++) {
+      const emp = employees[i];
+      const rowIndex = i + 1;
+
+      const full_name = emp.full_name?.trim();
+      const dob = emp.dob?.trim();
+      const mobile = emp.mobile?.trim();
+      const email = emp.email?.trim()?.toLowerCase();
+      const department = emp.department?.trim();
+      const designation = emp.designation?.trim();
+      const role = (emp.role?.trim()?.toLowerCase() === "reception") ? "reception" : "employee";
+      const status = (emp.status?.trim()?.toLowerCase() === "inactive") ? "inactive" : "active";
+      let employee_id = emp.employee_id?.trim();
+
+      // Validate required fields
+      if (!full_name || !dob || !mobile || !email || !department || !designation) {
+        failedRecords.push({
+          row: rowIndex,
+          data: emp,
+          reason: "Missing required fields (full_name, dob, mobile, email, department, designation are required).",
+        });
+        continue;
+      }
+
+      // Check mobile length
+      const cleanedMobile = mobile.replace(/\D/g, "");
+      if (cleanedMobile.length < 6) {
+        failedRecords.push({
+          row: rowIndex,
+          data: emp,
+          reason: "Mobile number must contain at least 6 digits.",
+        });
+        continue;
+      }
+
+      try {
+        await client.query("BEGIN");
+
+        // Auto-generate employee_id if omitted
+        if (!employee_id) {
+          employee_id = await generateAutoEmployeeId();
+        }
+
+        // Check if employee_id already exists
+        const checkEmp = await client.query(
+          "SELECT id FROM employees WHERE employee_id = $1",
+          [employee_id]
+        );
+        if (checkEmp.rows.length > 0) {
+          await client.query("ROLLBACK");
+          failedRecords.push({
+            row: rowIndex,
+            data: emp,
+            reason: `Employee with ID '${employee_id}' already exists.`,
+          });
+          continue;
+        }
+
+        // Check if email already exists
+        const checkEmail = await client.query(
+          "SELECT id FROM employees WHERE LOWER(email) = $1",
+          [email]
+        );
+        if (checkEmail.rows.length > 0) {
+          await client.query("ROLLBACK");
+          failedRecords.push({
+            row: rowIndex,
+            data: emp,
+            reason: `Employee with email '${email}' already exists.`,
+          });
+          continue;
+        }
+
+        // Generate Username & Password
+        const username = generateEmployeeUsername(employee_id, mobile);
+        const defaultPassword = generateEmployeeDefaultPassword(employee_id, dob);
+
+        // Check if username already exists
+        const checkUser = await client.query(
+          "SELECT id FROM users WHERE username = $1",
+          [username]
+        );
+        if (checkUser.rows.length > 0) {
+          await client.query("ROLLBACK");
+          failedRecords.push({
+            row: rowIndex,
+            data: emp,
+            reason: `User with username '${username}' already exists.`,
+          });
+          continue;
+        }
+
+        // 1. Insert employee
+        const insertEmpQuery = `
+          INSERT INTO employees (employee_id, full_name, dob, mobile, email, department, designation, role, status)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+          RETURNING *;
+        `;
+        const empRes = await client.query(insertEmpQuery, [
+          employee_id,
+          full_name,
+          dob,
+          mobile,
+          email,
+          department,
+          designation,
+          role,
+          status,
+        ]);
+
+        // 2. Insert user
+        const hashedPassword = await hashPassword(defaultPassword);
+        const insertUserQuery = `
+          INSERT INTO users (employee_id, username, password, role, status)
+          VALUES ($1, $2, $3, $4, $5)
+          RETURNING id, username, role, status;
+        `;
+        await client.query(insertUserQuery, [
+          employee_id,
+          username,
+          hashedPassword,
+          role,
+          status,
+        ]);
+
+        await client.query("COMMIT");
+
+        successfulRecords.push({
+          row: rowIndex,
+          employee_id,
+          full_name,
+          email,
+          mobile,
+          username,
+          role,
+          status,
+        });
+      } catch (rowErr) {
+        await client.query("ROLLBACK");
+        failedRecords.push({
+          row: rowIndex,
+          data: emp,
+          reason: rowErr.message || "Failed to save record.",
+        });
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: `Bulk upload processed. Successfully imported: ${successfulRecords.length}, Failed: ${failedRecords.length}.`,
+      summary: {
+        total: employees.length,
+        successful: successfulRecords.length,
+        failed: failedRecords.length,
+      },
+      successful: successfulRecords,
+      failed: failedRecords,
+    });
+  } catch (error) {
+    console.error("Error in bulkUploadEmployees:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error during bulk upload.",
+    });
+  } finally {
+    client.release();
+  }
+};
+
+
